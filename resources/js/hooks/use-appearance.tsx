@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
+import { useEffect, useState } from 'react';
 
 export type Appearance = 'light' | 'dark' | 'system';
 
@@ -35,8 +35,7 @@ export function initializeTheme() {
             localStorage.setItem('appearance', data.theme);
             applyTheme(data.theme);
             document.documentElement.style.setProperty('--primary', data.accent_color);
-            document.documentElement.style.fontSize =
-                data.font_size === 'small' ? '14px' : data.font_size === 'large' ? '18px' : '16px';
+            document.documentElement.style.fontSize = data.font_size === 'small' ? '14px' : data.font_size === 'large' ? '18px' : '16px';
         })
         .catch((error: unknown) => {
             if (!(error instanceof ApiError && error.status === 401)) {

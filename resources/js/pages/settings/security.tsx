@@ -1,16 +1,14 @@
-import { Head } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
 import HeadingSmall from '@/components/heading-small';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { api } from '@/lib/api';
 import { type BreadcrumbItem } from '@/types';
+import { Head } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
 
 const timeoutChoices = [0, 1, 5, 10, 15, 30, 60];
 
-const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Security settings', href: '/settings/security' },
-];
+const breadcrumbs: BreadcrumbItem[] = [{ title: 'Security settings', href: '/settings/security' }];
 
 export default function SecuritySettings() {
     const [autoLockMinutes, setAutoLockMinutes] = useState(15);
@@ -61,18 +59,28 @@ export default function SecuritySettings() {
                 <div className="space-y-6">
                     <HeadingSmall title="Security settings" description="Choose when your vault locks after inactivity." />
                     {loading ? (
-                        <p className="text-sm text-muted-foreground">Loading security settings…</p>
+                        <p className="text-muted-foreground text-sm">Loading security settings…</p>
                     ) : (
                         <form onSubmit={saveSecuritySettings} className="space-y-4">
-                            {error && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{error}</p>}
-                            {saved && <p role="status" className="text-sm text-muted-foreground">Security settings saved.</p>}
+                            {error && (
+                                <p role="alert" className="border-destructive/40 text-destructive rounded-lg border p-3 text-sm">
+                                    {error}
+                                </p>
+                            )}
+                            {saved && (
+                                <p role="status" className="text-muted-foreground text-sm">
+                                    Security settings saved.
+                                </p>
+                            )}
                             <div className="grid gap-2">
-                                <label htmlFor="auto-lock-minutes" className="text-sm font-medium">Automatically lock after</label>
+                                <label htmlFor="auto-lock-minutes" className="text-sm font-medium">
+                                    Automatically lock after
+                                </label>
                                 <select
                                     id="auto-lock-minutes"
                                     value={autoLockMinutes}
                                     onChange={(event) => setAutoLockMinutes(Number(event.target.value))}
-                                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm sm:max-w-xs"
+                                    className="bg-background w-full rounded-lg border px-3 py-2 text-sm sm:max-w-xs"
                                 >
                                     {timeoutChoices.map((minutes) => (
                                         <option key={minutes} value={minutes}>
@@ -80,14 +88,15 @@ export default function SecuritySettings() {
                                         </option>
                                     ))}
                                 </select>
-                                <p className="text-sm text-muted-foreground">
-                                    A zero-minute timeout disables inactivity locking only. You can still lock the vault manually, and it locks when you first open it.
+                                <p className="text-muted-foreground text-sm">
+                                    A zero-minute timeout disables inactivity locking only. You can still lock the vault manually, and it locks when
+                                    you first open it.
                                 </p>
                             </div>
                             <button
                                 type="submit"
                                 disabled={saving}
-                                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                                className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
                             >
                                 {saving ? 'Saving…' : 'Save security settings'}
                             </button>

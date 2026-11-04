@@ -9,9 +9,7 @@ export class ApiError extends Error {
 }
 
 function csrfToken(): string {
-    const cookie = document.cookie
-        .split('; ')
-        .find((item) => item.startsWith('XSRF-TOKEN='));
+    const cookie = document.cookie.split('; ').find((item) => item.startsWith('XSRF-TOKEN='));
 
     return cookie ? decodeURIComponent(cookie.substring('XSRF-TOKEN='.length)) : '';
 }
@@ -38,9 +36,7 @@ export async function api<T>(url: string, options: RequestInit = {}): Promise<T>
 
     if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        const errors = body.errors
-            ? Object.values(body.errors).flat().join(' ')
-            : body.message;
+        const errors = body.errors ? Object.values(body.errors).flat().join(' ') : body.message;
         const error = new ApiError(errors || `Request failed (${response.status}).`, response.status);
 
         if (response.status === 423) {

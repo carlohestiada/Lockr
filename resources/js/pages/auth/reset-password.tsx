@@ -1,5 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
 import type { FormDataConvertible } from '@inertiajs/core';
+import { Head, useForm } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { FormEventHandler } from 'react';
 

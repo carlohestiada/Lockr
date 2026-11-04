@@ -2,8 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Credential;
-use App\Models\Folder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -41,7 +39,7 @@ class VaultAuthorizationTest extends TestCase
             $credential->fresh()->notes
         );
     }
-    
+
     public function test_user_cannot_view_another_users_credential(): void
     {
         $owner = User::factory()->create();
@@ -180,7 +178,7 @@ class VaultAuthorizationTest extends TestCase
         $this->get('/api/credentials')
             ->assertRedirect(route('login'));
     }
-    
+
     public function test_owner_can_retrieve_their_decrypted_credential(): void
     {
         $owner = User::factory()->create();
@@ -202,7 +200,7 @@ class VaultAuthorizationTest extends TestCase
         $response->assertSeeText('owner-secret-123');
         $response->assertSeeText('My private recovery notes');
     }
-    
+
     public function test_user_can_move_credential_to_another_owned_folder(): void
     {
         $user = User::factory()->create();
@@ -235,8 +233,8 @@ class VaultAuthorizationTest extends TestCase
             'folder_id' => $newFolder->id,
         ]);
     }
-    
-    private function unlockVault(\App\Models\User $user): void
+
+    private function unlockVault(User $user): void
     {
         $this->actingAs($user)
             ->postJson('/api/vault/unlock', [

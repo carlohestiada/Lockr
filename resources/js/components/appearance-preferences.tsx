@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useEffect, useState } from 'react';
 
 type AppearancePreferences = {
     accent_color: string;
@@ -32,8 +32,7 @@ export default function AppearancePreferencesForm() {
                     show_website_icons: data.show_website_icons,
                 });
                 document.documentElement.style.setProperty('--primary', data.accent_color);
-                document.documentElement.style.fontSize =
-                    data.font_size === 'small' ? '14px' : data.font_size === 'large' ? '18px' : '16px';
+                document.documentElement.style.fontSize = data.font_size === 'small' ? '14px' : data.font_size === 'large' ? '18px' : '16px';
             })
             .catch((reason: unknown) => {
                 if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to load preferences.');
@@ -75,37 +74,47 @@ export default function AppearancePreferencesForm() {
     }
 
     if (loading) {
-        return <p className="text-sm text-muted-foreground">Loading appearance preferences…</p>;
+        return <p className="text-muted-foreground text-sm">Loading appearance preferences…</p>;
     }
 
     return (
         <form onSubmit={savePreferences} className="space-y-5">
-            {error && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{error}</p>}
-            {saved && <p role="status" className="text-sm text-muted-foreground">Appearance preferences saved.</p>}
+            {error && (
+                <p role="alert" className="border-destructive/40 text-destructive rounded-lg border p-3 text-sm">
+                    {error}
+                </p>
+            )}
+            {saved && (
+                <p role="status" className="text-muted-foreground text-sm">
+                    Appearance preferences saved.
+                </p>
+            )}
 
             <div className="grid gap-2">
-                <label htmlFor="accent-color" className="text-sm font-medium">Accent color</label>
+                <label htmlFor="accent-color" className="text-sm font-medium">
+                    Accent color
+                </label>
                 <div className="flex items-center gap-3">
                     <input
                         id="accent-color"
                         type="color"
                         value={preferences.accent_color}
                         onChange={(event) => setPreferences({ ...preferences, accent_color: event.target.value })}
-                        className="h-10 w-14 cursor-pointer rounded border bg-background p-1"
+                        className="bg-background h-10 w-14 cursor-pointer rounded border p-1"
                     />
-                    <span className="text-sm text-muted-foreground">{preferences.accent_color}</span>
+                    <span className="text-muted-foreground text-sm">{preferences.accent_color}</span>
                 </div>
             </div>
 
             <div className="grid gap-2">
-                <label htmlFor="font-size" className="text-sm font-medium">Text size</label>
+                <label htmlFor="font-size" className="text-sm font-medium">
+                    Text size
+                </label>
                 <select
                     id="font-size"
                     value={preferences.font_size}
-                    onChange={(event) =>
-                        setPreferences({ ...preferences, font_size: event.target.value as AppearancePreferences['font_size'] })
-                    }
-                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm sm:max-w-xs"
+                    onChange={(event) => setPreferences({ ...preferences, font_size: event.target.value as AppearancePreferences['font_size'] })}
+                    className="bg-background w-full rounded-lg border px-3 py-2 text-sm sm:max-w-xs"
                 >
                     <option value="small">Small</option>
                     <option value="medium">Medium</option>
@@ -126,7 +135,7 @@ export default function AppearancePreferencesForm() {
             <button
                 type="submit"
                 disabled={saving}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50"
             >
                 {saving ? 'Saving…' : 'Save appearance'}
             </button>

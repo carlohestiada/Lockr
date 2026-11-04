@@ -2,12 +2,12 @@
 
 use App\Http\Controllers\CredentialController;
 use App\Http\Controllers\FolderController;
-use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 use App\Http\Controllers\UserPreferenceController;
 use App\Http\Controllers\VaultLockController;
 use App\Http\Middleware\EnsureVaultUnlocked;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
 Route::get('/', function (Request $request) {
     return $request->user()
@@ -37,7 +37,7 @@ Route::middleware('auth')->prefix('api')->group(function () {
 
     Route::apiResource('folders', FolderController::class)
         ->only(['index', 'store', 'update', 'destroy']);
-    
+
     Route::get('preferences', [UserPreferenceController::class, 'show'])
         ->name('preferences.show');
 

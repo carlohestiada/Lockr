@@ -32,7 +32,11 @@ export default function AppearanceToggleTab({ className = '', ...props }: HTMLAt
                     </button>
                 ))}
             </div>
-            {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
+            {error && (
+                <p role="alert" className="text-destructive mt-2 text-sm">
+                    {error}
+                </p>
+            )}
         </>
     );
 }

@@ -39,10 +39,10 @@ class CredentialController extends Controller
 
         return response()->json($query->paginate($validated['per_page'] ?? 20));
     }
-    
+
     public function show(Credential $credential)
     {
-        \Illuminate\Support\Facades\Gate::authorize('view', $credential);
+        Gate::authorize('view', $credential);
 
         return response()->json([
             'data' => [

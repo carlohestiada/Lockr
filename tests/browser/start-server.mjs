@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import process from 'node:process';
 
 const root = resolve(import.meta.dirname, '../..');
 const databaseDirectory = mkdtempSync(join(tmpdir(), 'lockr-playwright-'));
