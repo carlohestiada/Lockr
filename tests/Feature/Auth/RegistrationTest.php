@@ -22,8 +22,8 @@ class RegistrationTest extends TestCase
         $response = $this->post('/register', [
             'name' => 'Test User',
             'email' => 'test@example.com',
-            'password' => 'password',
-            'password_confirmation' => 'password',
+            'password' => 'StrongPassword123!',
+            'password_confirmation' => 'StrongPassword123!',
         ]);
 
         $this->assertAuthenticated();
@@ -35,12 +35,42 @@ class RegistrationTest extends TestCase
         $response = $this->from('/register')->post('/register', [
             'name' => '',
             'email' => 'not-an-email',
-            'password' => 'password',
-            'password_confirmation' => 'different-password',
+            'password' => 'StrongPassword123!',
+            'password_confirmation' => 'StrongPassword123!',
         ]);
 
         $response->assertRedirect('/register')
-            ->assertSessionHasErrors(['name', 'email', 'password']);
+            ->assertSessionHasErrors(['name', 'email']);
+
+        $this->assertGuest();
+    }
+
+    public function test_registration_requires_a_password_that_meets_the_displayed_requirements()
+    {
+        $response = $this->from('/register')->post('/register', [
+            'name' => 'Test User',
+            'email' => 'test@example.com',
+            'password' => 'weakpassword',
+            'password_confirmation' => 'weakpassword',
+        ]);
+
+        $response->assertRedirect('/register')
+            ->assertSessionHasErrors('password');
+
+        $this->assertGuest();
+    }
+
+    public function test_registration_rejects_mismatched_valid_passwords()
+    {
+        $response = $this->from('/register')->post('/register', [
+            'name' => 'Test User',
+            'email' => 'test@example.com',
+            'password' => 'StrongPassword123!',
+            'password_confirmation' => 'AnotherPassword123!',
+        ]);
+
+        $response->assertRedirect('/register')
+            ->assertSessionHasErrors('password');
 
         $this->assertGuest();
     }
