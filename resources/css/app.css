@@ -29,6 +29,58 @@
     .lockr-login-mono {
         font-family: 'JetBrains Mono', ui-monospace, monospace;
     }
+
+    .lockr-vault-grid {
+        background-image: radial-gradient(rgb(44 116 179 / 12%) 0.8px, transparent 0.8px);
+        background-position: center;
+        background-size: 24px 24px;
+        mask-image: linear-gradient(to bottom, transparent, black 16%, black 84%, transparent);
+    }
+
+    .lockr-vault-orbit {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        aspect-ratio: 1;
+        border: 1px solid rgb(44 116 179 / 9%);
+        border-radius: 9999px;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+    }
+
+    .lockr-vault-orbit-outer {
+        width: min(94vw, 68rem);
+        animation: lockr-vault-orbit 48s linear infinite;
+    }
+
+    .lockr-vault-orbit-inner {
+        width: min(76vw, 54rem);
+        border-color: rgb(44 116 179 / 7%);
+        animation: lockr-vault-orbit 38s linear infinite reverse;
+    }
+
+    .lockr-vault-logo-glow {
+        animation: lockr-vault-glow 3s ease-in-out infinite;
+    }
+}
+
+@keyframes lockr-vault-orbit {
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
+}
+
+@keyframes lockr-vault-glow {
+    50% {
+        box-shadow: 0 0 24px rgb(44 116 179 / 28%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lockr-vault-orbit,
+    .lockr-vault-logo-glow {
+        animation: none;
+    }
 }
 
 @theme {

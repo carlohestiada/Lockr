@@ -2,7 +2,7 @@ import AppLayout from '@/layouts/app-layout';
 import { api, ApiError } from '@/lib/api';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
-import { Eye, EyeOff, Globe2, KeyRound, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, Globe2, KeyRound, LockKeyhole, LogOut, Shield, ShieldCheck, UserRound } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type Folder = {
@@ -66,8 +66,10 @@ export default function VaultIndex() {
     const [statusLoading, setStatusLoading] = useState(true);
     const [unlockPassword, setUnlockPassword] = useState('');
     const [showUnlockPassword, setShowUnlockPassword] = useState(false);
+    const [capsLockOn, setCapsLockOn] = useState(false);
     const [unlocking, setUnlocking] = useState(false);
     const [autoLockMinutes, setAutoLockMinutes] = useState(15);
+    const [autoLockSettingLoaded, setAutoLockSettingLoaded] = useState(false);
     const [showWebsiteIcons, setShowWebsiteIcons] = useState(true);
     const vaultLockedRef = useRef(true);
     const lastActivityRef = useRef(Date.now());
@@ -163,6 +165,7 @@ export default function VaultIndex() {
                 if (cancelled) return;
 
                 setAutoLockMinutes(preferences.data.auto_lock_minutes ?? status.auto_lock_minutes);
+                setAutoLockSettingLoaded(true);
                 setShowWebsiteIcons(preferences.data.show_website_icons);
 
                 if (status.locked) {
@@ -276,6 +279,8 @@ export default function VaultIndex() {
 
     async function unlockVault(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
+        if (unlocking || !unlockPassword.trim()) return;
+
         setUnlocking(true);
         setError('');
 
@@ -290,6 +295,8 @@ export default function VaultIndex() {
             await loadData();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unable to unlock the vault.');
+            setUnlockPassword('');
+            setShowUnlockPassword(false);
         } finally {
             setUnlocking(false);
         }
@@ -475,29 +482,44 @@ export default function VaultIndex() {
 
     if (statusLoading || vaultLocked) {
         return (
-            <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#F8FAFC] px-4 py-10 text-[#0A2647] sm:px-6">
+            <div className="lockr-login-background lockr-login-font relative flex min-h-svh items-center justify-center overflow-hidden px-4 py-10 text-[#0A2647] sm:px-6">
                 <Head title={vaultLocked ? 'Unlock vault' : 'Checking vault'} />
-                <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0"
-                    style={{
-                        backgroundImage:
-                            'radial-gradient(circle, rgba(44, 116, 179, 0.14) 1px, transparent 1.5px), radial-gradient(circle, transparent 58%, rgba(44, 116, 179, 0.06) 58.2%, transparent 58.6%), radial-gradient(circle, transparent 72%, rgba(44, 116, 179, 0.05) 72.2%, transparent 72.6%)',
-                        backgroundPosition: 'center, center, center',
-                        backgroundSize: '28px 28px, min(100vw, 900px) min(100vw, 900px), min(100vw, 1120px) min(100vw, 1120px)',
-                        maskImage: 'linear-gradient(to bottom, transparent, black 18%, black 82%, transparent)',
-                    }}
-                />
+                <div aria-hidden="true" className="lockr-vault-orbit lockr-vault-orbit-outer" />
+                <div aria-hidden="true" className="lockr-vault-orbit lockr-vault-orbit-inner" />
+                <div aria-hidden="true" className="lockr-vault-grid pointer-events-none absolute inset-0" />
+
                 <main className="relative z-10 flex w-full max-w-[30rem] flex-col items-center">
-                    <section className="w-full rounded-[1.75rem] border border-[#0A2647]/[0.08] bg-white px-6 py-8 shadow-[0_24px_80px_-36px_rgba(10,38,71,0.28)] sm:px-10 sm:py-10">
-                        <header className="mb-8 flex flex-col items-center text-center">
-                            <img src="/logo.svg" alt="Lockr" className="mb-7 h-auto w-32" />
-                            <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0A2647] text-white shadow-lg shadow-[#0A2647]/15">
-                                {statusLoading ? (
-                                    <ShieldCheck aria-hidden="true" className="h-7 w-7" />
-                                ) : (
-                                    <LockKeyhole aria-hidden="true" className="h-7 w-7" />
-                                )}
+                    <section className="w-full rounded-[1.75rem] border border-[#0A2647]/[0.08] bg-white/95 px-5 py-7 shadow-[0_24px_80px_-36px_rgba(10,38,71,0.3)] backdrop-blur-sm sm:px-9 sm:py-9">
+                        <header className="mb-7 flex flex-col items-center text-center">
+                            <Link
+                                href={route('vault.index')}
+                                className="mb-6 flex items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#2C74B3] focus-visible:ring-offset-4"
+                            >
+                                <span className="lockr-vault-logo-glow relative flex size-11 items-center justify-center rounded-xl bg-[#0A2647] text-white">
+                                    <Shield className="size-7" strokeWidth={2} aria-hidden="true" />
+                                    <LockKeyhole className="absolute top-[15px] left-[15px] size-[11px]" strokeWidth={2.2} aria-hidden="true" />
+                                </span>
+                                <span className="text-left">
+                                    <span className="block text-xl leading-5 font-bold tracking-tight text-[#0A2647]">Lockr</span>
+                                    <span className="mt-1 block text-[9px] font-medium tracking-[0.13em] text-slate-500 uppercase">
+                                        Institutional Vault Engine
+                                    </span>
+                                </span>
+                            </Link>
+
+                            <span className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-[#205295]/15 bg-[#205295]/[0.06] px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-[#205295] uppercase">
+                                <ShieldCheck className="size-3.5" aria-hidden="true" />
+                                Session protected
+                            </span>
+                            <div className="relative mb-4">
+                                <span aria-hidden="true" className="absolute -inset-2 rounded-[1.25rem] bg-[#2C74B3]/10 blur-md" />
+                                <span className="relative flex size-14 items-center justify-center rounded-2xl bg-[#0A2647] text-white shadow-lg shadow-[#0A2647]/15">
+                                    {statusLoading ? (
+                                        <ShieldCheck className="size-7" aria-hidden="true" />
+                                    ) : (
+                                        <LockKeyhole className="size-7" aria-hidden="true" />
+                                    )}
+                                </span>
                             </div>
                             {statusLoading ? (
                                 <>
@@ -506,9 +528,9 @@ export default function VaultIndex() {
                                 </>
                             ) : (
                                 <>
-                                    <h1 className="text-2xl font-semibold tracking-tight text-[#0A2647]">Your vault is locked</h1>
+                                    <h1 className="text-2xl font-semibold tracking-tight text-[#0A2647]">Your Vault is Locked</h1>
                                     <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
-                                        Enter your account password to unlock your saved credentials.
+                                        Your vault is currently locked. Enter your Master Password to securely unlock your stored credentials.
                                     </p>
                                 </>
                             )}
@@ -522,25 +544,36 @@ export default function VaultIndex() {
                         ) : (
                             <>
                                 {auth.user && (
-                                    <div className="mb-6 flex items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3">
+                                    <div className="mb-5 flex items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/80 px-3.5 py-3">
                                         <div
                                             aria-hidden="true"
-                                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#144272] text-sm font-semibold text-white"
+                                            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#144272] text-sm font-semibold text-white"
                                         >
                                             {auth.user.name
                                                 .trim()
                                                 .split(/\s+/)
                                                 .slice(0, 2)
                                                 .map((part) => part.charAt(0).toUpperCase())
-                                                .join('')}
+                                                .join('') || <UserRound className="size-4" />}
                                         </div>
                                         <div className="min-w-0">
                                             <p className="truncate text-sm font-semibold text-[#0A2647]">{auth.user.name}</p>
                                             <p className="truncate text-xs text-slate-500">{auth.user.email}</p>
                                         </div>
-                                        <span className="ml-auto rounded-full bg-[#205295]/[0.08] px-2.5 py-1 text-[0.6875rem] font-medium text-[#144272]">
+                                        <span className="ml-auto rounded-full bg-[#205295]/[0.08] px-2.5 py-1 text-[10px] font-medium text-[#144272]">
                                             Account
                                         </span>
+                                    </div>
+                                )}
+
+                                {autoLockSettingLoaded && (
+                                    <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-[#2C74B3]/15 bg-[#2C74B3]/[0.04] px-3.5 py-3">
+                                        <LockKeyhole className="mt-0.5 size-4 shrink-0 text-[#2C74B3]" aria-hidden="true" />
+                                        <p className="text-xs leading-5 text-slate-600">
+                                            {autoLockMinutes > 0
+                                                ? `Your vault automatically locks after ${autoLockMinutes} ${autoLockMinutes === 1 ? 'minute' : 'minutes'} of inactivity.`
+                                                : 'Automatic inactivity locking is disabled. You can still lock your vault manually.'}
+                                        </p>
                                     </div>
                                 )}
 
@@ -554,15 +587,31 @@ export default function VaultIndex() {
                                     </div>
                                 )}
 
-                                <form onSubmit={unlockVault} className="space-y-5">
+                                <form
+                                    onSubmit={unlockVault}
+                                    className="space-y-5"
+                                    onKeyDown={(event) => {
+                                        if (event.target instanceof HTMLInputElement && event.target.id === 'vault-password') {
+                                            setCapsLockOn(event.getModifierState('CapsLock'));
+                                        }
+                                    }}
+                                    onKeyUp={(event) => {
+                                        if (event.target instanceof HTMLInputElement && event.target.id === 'vault-password') {
+                                            setCapsLockOn(event.getModifierState('CapsLock'));
+                                        }
+                                    }}
+                                >
                                     <div>
-                                        <label htmlFor="vault-password" className="mb-2 block text-sm font-semibold text-[#0A2647]">
-                                            Account password
-                                        </label>
+                                        <div className="mb-2 flex items-center justify-between">
+                                            <label htmlFor="vault-password" className="block text-sm font-semibold text-[#0A2647]">
+                                                Master Password
+                                            </label>
+                                            <span className="font-mono text-[10px] tracking-wide text-slate-400">ACCOUNT CREDENTIAL</span>
+                                        </div>
                                         <div className="relative">
                                             <KeyRound
                                                 aria-hidden="true"
-                                                className="pointer-events-none absolute top-1/2 left-3.5 h-[1.125rem] w-[1.125rem] -translate-y-1/2 text-[#2C74B3]"
+                                                className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-[#2C74B3]"
                                             />
                                             <input
                                                 id="vault-password"
@@ -572,52 +621,77 @@ export default function VaultIndex() {
                                                 required
                                                 value={unlockPassword}
                                                 onChange={(event) => setUnlockPassword(event.target.value)}
+                                                onBlur={() => setCapsLockOn(false)}
                                                 aria-invalid={Boolean(error)}
-                                                aria-describedby={error ? 'vault-unlock-error' : undefined}
+                                                aria-describedby={
+                                                    [error ? 'vault-unlock-error' : '', capsLockOn ? 'vault-caps-lock' : '']
+                                                        .filter(Boolean)
+                                                        .join(' ') || undefined
+                                                }
                                                 disabled={unlocking}
-                                                className="h-12 w-full rounded-xl border border-slate-300 bg-white py-2.5 pr-12 pl-11 text-sm text-[#0A2647] transition-colors outline-none placeholder:text-slate-400 focus:border-[#2C74B3] focus:ring-4 focus:ring-[#2C74B3]/15 disabled:cursor-not-allowed disabled:bg-slate-50"
+                                                className="h-[50px] w-full rounded-xl border border-slate-200 bg-[#EFF4FF] py-2.5 pr-12 pl-11 text-sm text-[#0A2647] transition-colors outline-none placeholder:text-slate-400 focus:border-[#2C74B3] focus:ring-4 focus:ring-[#2C74B3]/15 disabled:cursor-not-allowed disabled:bg-slate-50"
                                             />
                                             <button
                                                 type="button"
                                                 onClick={() => setShowUnlockPassword((visible) => !visible)}
-                                                aria-label={showUnlockPassword ? 'Hide password' : 'Show password'}
+                                                aria-label={showUnlockPassword ? 'Hide Master Password' : 'Show Master Password'}
                                                 aria-pressed={showUnlockPassword}
-                                                className="absolute top-1/2 right-2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 outline-none hover:bg-slate-100 hover:text-[#144272] focus-visible:ring-2 focus-visible:ring-[#2C74B3] focus-visible:ring-offset-1"
+                                                disabled={unlocking}
+                                                className="absolute top-1/2 right-2 inline-flex size-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 outline-none hover:bg-white hover:text-[#144272] focus-visible:ring-2 focus-visible:ring-[#2C74B3] focus-visible:ring-offset-1 disabled:opacity-50"
                                             >
                                                 {showUnlockPassword ? (
-                                                    <EyeOff aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />
+                                                    <EyeOff aria-hidden="true" className="size-[18px]" />
                                                 ) : (
-                                                    <Eye aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />
+                                                    <Eye aria-hidden="true" className="size-[18px]" />
                                                 )}
                                             </button>
                                         </div>
+                                        {capsLockOn && (
+                                            <p id="vault-caps-lock" role="status" className="mt-2 text-xs font-medium text-amber-700">
+                                                Caps Lock is on
+                                            </p>
+                                        )}
                                     </div>
 
                                     <button
                                         type="submit"
-                                        disabled={unlocking || !unlockPassword}
-                                        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#205295] px-4 text-sm font-semibold text-white shadow-md shadow-[#205295]/15 transition-colors outline-none hover:bg-[#144272] focus-visible:ring-2 focus-visible:ring-[#2C74B3] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                                        disabled={unlocking || !unlockPassword.trim()}
+                                        className="inline-flex h-[50px] w-full items-center justify-center gap-2 rounded-xl bg-[#003A78] px-4 text-sm font-semibold text-white shadow-md shadow-[#003A78]/15 transition-colors outline-none hover:bg-[#205295] focus-visible:ring-2 focus-visible:ring-[#2C74B3] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                                     >
                                         {unlocking ? (
                                             <>
-                                                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none" />
-                                                Unlocking…
+                                                <span className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none" />
+                                                Verifying and unlocking…
                                             </>
                                         ) : (
                                             <>
-                                                <LockKeyhole aria-hidden="true" className="h-4 w-4" />
-                                                Unlock vault
+                                                <LockKeyhole aria-hidden="true" className="size-[18px]" />
+                                                Unlock Vault
                                             </>
                                         )}
                                     </button>
                                 </form>
 
-                                <div className="mt-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm">
+                                <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-center">
+                                    <p className="text-xs font-medium text-slate-700">Passkey / Touch ID unlock</p>
+                                    <p className="mt-1 text-[11px] text-slate-500">Not available yet</p>
+                                </div>
+
+                                <div className="mt-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs">
                                     <Link
                                         href={route('password.request')}
-                                        className="rounded-sm font-medium text-[#2C74B3] outline-none hover:text-[#144272] hover:underline focus-visible:ring-2 focus-visible:ring-[#2C74B3] focus-visible:ring-offset-2"
+                                        className="rounded-sm font-medium text-[#205295] outline-none hover:text-[#003A78] hover:underline focus-visible:ring-2 focus-visible:ring-[#2C74B3] focus-visible:ring-offset-2"
                                     >
-                                        Forgot password?
+                                        Forgot Master Password?
+                                    </Link>
+                                    <Link
+                                        href={route('logout')}
+                                        method="post"
+                                        as="button"
+                                        onClick={clearSensitiveState}
+                                        className="rounded-sm font-medium text-slate-500 outline-none hover:text-[#144272] focus-visible:ring-2 focus-visible:ring-[#2C74B3] focus-visible:ring-offset-2"
+                                    >
+                                        Switch account
                                     </Link>
                                     <Link
                                         href={route('logout')}
@@ -626,21 +700,22 @@ export default function VaultIndex() {
                                         onClick={clearSensitiveState}
                                         className="inline-flex items-center gap-1.5 rounded-sm font-medium text-slate-500 outline-none hover:text-[#144272] focus-visible:ring-2 focus-visible:ring-[#2C74B3] focus-visible:ring-offset-2"
                                     >
-                                        <LogOut aria-hidden="true" className="h-4 w-4" />
+                                        <LogOut aria-hidden="true" className="size-4" />
                                         Log out completely
                                     </Link>
                                 </div>
 
-                                <aside className="mt-7 flex gap-3 rounded-xl border border-[#2C74B3]/15 bg-[#2C74B3]/[0.04] p-4">
-                                    <ShieldCheck aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-[#2C74B3]" />
+                                <aside className="mt-6 flex gap-3 rounded-xl border border-[#2C74B3]/15 bg-[#2C74B3]/[0.04] p-4">
+                                    <ShieldCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-[#2C74B3]" />
                                     <p className="text-xs leading-5 text-slate-600">
-                                        Vault access is checked by the server. Saved credential passwords and notes are encrypted at rest.
+                                        Unlocking is verified by the server using your account password. Saved credential passwords and notes are
+                                        encrypted at rest with the application key; this is not client-side encryption.
                                     </p>
                                 </aside>
                             </>
                         )}
                     </section>
-                    <p className="mt-6 text-center text-xs text-slate-500">Private access to your personal vault</p>
+                    <p className="mt-5 text-center text-xs text-slate-500">Private access to your personal vault</p>
                 </main>
             </div>
         );

@@ -69,9 +69,16 @@ class AuthenticationTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $response = $this->actingAs($user)->post('/logout');
+        $response = $this->actingAs($user)
+            ->withSession([
+                'vault_unlocked_at' => now()->timestamp,
+                'vault_unlocked_user_id' => $user->id,
+            ])
+            ->post('/logout');
 
         $this->assertGuest();
+        $this->assertFalse(session()->has('vault_unlocked_at'));
+        $this->assertFalse(session()->has('vault_unlocked_user_id'));
         $response->assertRedirect('/');
     }
 }

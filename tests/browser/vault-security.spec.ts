@@ -6,13 +6,14 @@ async function registerUser(page: Page): Promise<{ email: string; password: stri
     const email = `vault-${crypto.randomUUID()}@example.test`;
 
     await page.goto('/register');
-    await page.getByLabel('Name').fill('Vault E2E User');
-    await page.getByLabel('Email address').fill(email);
-    await page.getByLabel('Password', { exact: true }).fill(testPassword);
-    await page.getByLabel('Confirm password').fill(testPassword);
-    await page.getByRole('button', { name: 'Create account' }).click();
+    await page.getByLabel('Full Name').fill('Vault E2E User');
+    await page.getByLabel('Master Email Address').fill(email);
+    await page.getByLabel('Master Password', { exact: true }).fill(testPassword);
+    await page.getByLabel('Confirm Master Password').fill(testPassword);
+    await page.getByRole('checkbox').first().check();
+    await page.getByRole('button', { name: 'Create Secure Vault' }).click();
     await expect(page).toHaveURL(/vault/, { timeout: 30_000 });
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible({ timeout: 30_000 });
 
     return { email, password: testPassword };
 }
@@ -21,7 +22,7 @@ async function openLockedVault(page: Page): Promise<void> {
     if (!new URL(page.url()).pathname.endsWith('/vault')) {
         await page.goto('/vault');
     }
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible({ timeout: 30_000 });
 }
 
 test('locked vault screen shows the account, offers password visibility, and logs out through Laravel', async ({ page }) => {
@@ -31,28 +32,28 @@ test('locked vault screen shows the account, offers password visibility, and log
 
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(hasHorizontalOverflow).toBe(false);
-    await expect(page.getByRole('img', { name: 'Lockr' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Lockr/ })).toBeVisible();
     await expect(page.getByText('Vault E2E User')).toBeVisible();
     await expect(page.getByText('vault-', { exact: false })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Forgot password?' })).toHaveAttribute('href', /\/forgot-password$/);
+    await expect(page.getByRole('link', { name: 'Forgot Master Password?' })).toHaveAttribute('href', /\/forgot-password$/);
     await expect(page.getByText(/encrypted at rest/)).toBeVisible();
 
-    const password = page.getByLabel('Account password');
+    const password = page.getByLabel('Master Password', { exact: true });
     await password.fill(testPassword);
     await expect(password).toHaveAttribute('type', 'password');
-    await page.getByRole('button', { name: 'Show password' }).click();
+    await page.getByRole('button', { name: 'Show Master Password' }).click();
     await expect(password).toHaveAttribute('type', 'text');
-    await page.getByRole('button', { name: 'Hide password' }).click();
+    await page.getByRole('button', { name: 'Hide Master Password' }).click();
     await expect(password).toHaveAttribute('type', 'password');
 
     await page.getByRole('button', { name: 'Log out completely' }).click();
     await expect(page).toHaveURL(/\/login$/);
-    await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign In to Vault' })).toBeVisible();
 });
 
 async function unlockVault(page: Page, password = testPassword): Promise<void> {
-    await page.getByLabel('Account password').fill(password);
-    await page.getByRole('button', { name: 'Unlock vault' }).click();
+    await page.getByLabel('Master Password', { exact: true }).fill(password);
+    await page.getByRole('button', { name: 'Unlock Vault' }).click();
     await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('a[data-sidebar="menu-button"][href="/vault"]').filter({ hasText: 'My Vault' })).toBeVisible();
 }
@@ -88,7 +89,7 @@ async function setAutoLock(page: Page, minutes: number): Promise<void> {
 
     expect(result).toBe(200);
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible({ timeout: 30_000 });
 }
 
 test('authenticated vault visit starts locked and correct account password unlocks', async ({ page }) => {
@@ -157,19 +158,19 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await page.locator('a[data-sidebar="menu-button"][href="/dashboard"]').click();
     await page.getByRole('main').getByRole('button', { name: 'Lock vault' }).click({ timeout: 30_000 });
     await expect(page).toHaveURL(/\/vault$/, { timeout: 30_000 });
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible({ timeout: 30_000 });
 });
 
 test('incorrect account password reports an error and leaves the vault locked', async ({ page }) => {
     await registerUser(page);
     await openLockedVault(page);
-    await page.getByLabel('Account password').fill('incorrect-disposable-password');
-    await page.getByRole('button', { name: 'Unlock vault' }).click();
+    await page.getByLabel('Master Password', { exact: true }).fill('incorrect-disposable-password');
+    await page.getByRole('button', { name: 'Unlock Vault' }).click();
 
     await expect(page.getByRole('alert')).toContainText('password is incorrect');
-    await expect(page.getByLabel('Account password')).toHaveAttribute('aria-invalid', 'true');
-    await expect(page.getByLabel('Account password')).toHaveAttribute('aria-describedby', 'vault-unlock-error');
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByLabel('Master Password', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByLabel('Master Password', { exact: true })).toHaveAttribute('aria-describedby', 'vault-unlock-error');
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible({ timeout: 30_000 });
     const status = await page.evaluate(() =>
         fetch('/api/vault/status', { headers: { Accept: 'application/json' } }).then((response) => response.json()),
     );
@@ -190,7 +191,7 @@ test('manual lock clears revealed credentials and protected API access', async (
     await page.getByRole('button', { name: 'Show password' }).click();
     await expect(page.getByText('Never-a-real-password-992')).toBeVisible();
     await page.getByRole('main').getByRole('button', { name: 'Lock vault' }).click();
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible();
     await expect(page.getByText('Never-a-real-password-992')).toHaveCount(0);
 
     const response = await page.evaluate(() =>
@@ -207,7 +208,7 @@ test('saved inactivity timeout locks the vault using browser clock control', asy
     await unlockVault(page);
 
     await page.clock.fastForward(60_001);
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible();
 });
 
 test('zero inactivity timeout does not bypass unlock or explicit locking', async ({ page }) => {
@@ -217,13 +218,13 @@ test('zero inactivity timeout does not bypass unlock or explicit locking', async
     await openLockedVault(page);
 
     await page.clock.fastForward(60 * 60 * 1000);
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible();
 
     await unlockVault(page);
     await page.clock.fastForward(60 * 60 * 1000);
     await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible();
     await page.getByRole('main').getByRole('button', { name: 'Lock vault' }).click();
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible();
 });
 
 test('visibility change clears revealed passwords and locks the vault', async ({ page }) => {
@@ -240,7 +241,7 @@ test('visibility change clears revealed passwords and locks the vault', async ({
         document.dispatchEvent(new Event('visibilitychange'));
     });
 
-    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Hidden-tab-test-secret')).toHaveCount(0);
 });
 
