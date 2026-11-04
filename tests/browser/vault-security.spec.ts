@@ -1,0 +1,314 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const testPassword = 'Disposable-E2E-Password-7391';
+
+async function registerUser(page: Page): Promise<{ email: string; password: string }> {
+    const email = `vault-${crypto.randomUUID()}@example.test`;
+
+    await page.goto('/register');
+    await page.getByLabel('Name').fill('Vault E2E User');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password', { exact: true }).fill(testPassword);
+    await page.getByLabel('Confirm password').fill(testPassword);
+    await page.getByRole('button', { name: 'Create account' }).click();
+    await expect(page).toHaveURL(/vault/, { timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+
+    return { email, password: testPassword };
+}
+
+async function openLockedVault(page: Page): Promise<void> {
+    if (!new URL(page.url()).pathname.endsWith('/vault')) {
+        await page.goto('/vault');
+    }
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+}
+
+test('locked vault screen shows the account, offers password visibility, and logs out through Laravel', async ({ page }) => {
+    await registerUser(page);
+    await page.setViewportSize({ width: 360, height: 800 });
+    await openLockedVault(page);
+
+    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(hasHorizontalOverflow).toBe(false);
+    await expect(page.getByRole('img', { name: 'Lockr' })).toBeVisible();
+    await expect(page.getByText('Vault E2E User')).toBeVisible();
+    await expect(page.getByText('vault-', { exact: false })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Forgot password?' })).toHaveAttribute('href', /\/forgot-password$/);
+    await expect(page.getByText(/encrypted at rest/)).toBeVisible();
+
+    const password = page.getByLabel('Account password');
+    await password.fill(testPassword);
+    await expect(password).toHaveAttribute('type', 'password');
+    await page.getByRole('button', { name: 'Show password' }).click();
+    await expect(password).toHaveAttribute('type', 'text');
+    await page.getByRole('button', { name: 'Hide password' }).click();
+    await expect(password).toHaveAttribute('type', 'password');
+
+    await page.getByRole('button', { name: 'Log out completely' }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible();
+});
+
+async function unlockVault(page: Page, password = testPassword): Promise<void> {
+    await page.getByLabel('Account password').fill(password);
+    await page.getByRole('button', { name: 'Unlock vault' }).click();
+    await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('a[data-sidebar="menu-button"][href="/vault"]').filter({ hasText: 'My Vault' })).toBeVisible();
+}
+
+async function addCredential(page: Page, title: string, password: string): Promise<void> {
+    await page.getByRole('button', { name: '+ Add credential' }).click();
+    await page.getByLabel('Title *').fill(title);
+    await page.getByLabel('Password *').fill(password);
+    await page.getByRole('button', { name: 'Save credential' }).click();
+    await expect(page.getByRole('heading', { name: title })).toBeVisible({ timeout: 30_000 });
+}
+
+async function setAutoLock(page: Page, minutes: number): Promise<void> {
+    const result = await page.evaluate(async (value) => {
+        const token = document.cookie
+            .split('; ')
+            .find((cookie) => cookie.startsWith('XSRF-TOKEN='))
+            ?.slice('XSRF-TOKEN='.length);
+
+        const response = await fetch('/api/preferences', {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                ...(token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {}),
+            },
+            body: JSON.stringify({ auto_lock_minutes: value }),
+        });
+
+        return response.status;
+    }, minutes);
+
+    expect(result).toBe(200);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+}
+
+test('authenticated vault visit starts locked and correct account password unlocks', async ({ page }) => {
+    await registerUser(page);
+    await openLockedVault(page);
+    await unlockVault(page);
+
+    const response = await page.evaluate(() =>
+        fetch('/api/credentials', { headers: { Accept: 'application/json' } }).then((result) => result.status),
+    );
+    expect(response).toBe(200);
+
+    const csrfProtectedResponse = await page.evaluate(() =>
+        fetch('/api/vault/lock', {
+            method: 'POST',
+            headers: { Accept: 'application/json' },
+        }).then((result) => result.status),
+    );
+    expect(csrfProtectedResponse).toBe(419);
+});
+
+test('dashboard uses real credential metadata, searches safely, and generates passwords securely', async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerUser(page);
+    await openLockedVault(page);
+    await unlockVault(page);
+
+    await page.getByRole('button', { name: '+ Add credential' }).click();
+    await page.getByLabel('Title *').fill('E2E dashboard mail');
+    await page.getByLabel('Username or email').fill('dashboard-user@example.test');
+    await page.getByLabel('Password *').fill('Disposable-dashboard-secret-33');
+    await page.getByLabel('Notes').fill('Disposable dashboard private note');
+    await page.getByRole('button', { name: 'Save credential' }).click();
+    await expect(page.getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible({ timeout: 30_000 });
+
+    await page.locator('a[data-sidebar="menu-button"][href="/dashboard"]').click();
+    await expect(page.getByRole('heading', { name: 'Your dashboard' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible({ timeout: 30_000 });
+    const dashboardText = await page.locator('body').innerText();
+    expect(dashboardText).not.toContain('Disposable-dashboard-secret-33');
+    expect(dashboardText).not.toContain('Disposable dashboard private note');
+
+    await page.getByRole('textbox', { name: 'Search credentials' }).fill('dashboard-user');
+    await expect(page.getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('textbox', { name: 'Search credentials' }).fill('no matching dashboard item');
+    await expect(page.getByText('No matching credentials')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Generate password' }).click();
+    await expect(page.getByRole('textbox', { name: 'Generated password' })).toHaveValue(/.{20}/);
+
+    await page.getByRole('textbox', { name: 'Search credentials' }).fill('dashboard-user');
+    await page.getByRole('button', { name: 'Add E2E dashboard mail to favorites' }).click();
+    await page.locator('a[data-sidebar="menu-button"][href="/vault?favorites=1"]').click();
+    await expect(page).toHaveURL(/\/vault\?favorites=1$/);
+    await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible({ timeout: 30_000 });
+
+    await page.locator('a[data-sidebar="menu-button"][href="/dashboard"]').click();
+    await page.getByRole('link', { name: 'Add credential' }).click();
+    await expect(page.getByLabel('Title *')).toBeVisible({ timeout: 30_000 });
+    await page.getByLabel('Title *').fill('E2E dashboard created item');
+    await page.getByLabel('Password *').fill('Disposable-dashboard-secret-34');
+    await page.getByRole('button', { name: 'Save credential' }).click();
+    await expect(page.getByRole('heading', { name: 'E2E dashboard created item' })).toBeVisible({ timeout: 30_000 });
+
+    await page.locator('a[data-sidebar="menu-button"][href="/dashboard"]').click();
+    await page.getByRole('main').getByRole('button', { name: 'Lock vault' }).click({ timeout: 30_000 });
+    await expect(page).toHaveURL(/\/vault$/, { timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+});
+
+test('incorrect account password reports an error and leaves the vault locked', async ({ page }) => {
+    await registerUser(page);
+    await openLockedVault(page);
+    await page.getByLabel('Account password').fill('incorrect-disposable-password');
+    await page.getByRole('button', { name: 'Unlock vault' }).click();
+
+    await expect(page.getByRole('alert')).toContainText('password is incorrect');
+    await expect(page.getByLabel('Account password')).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByLabel('Account password')).toHaveAttribute('aria-describedby', 'vault-unlock-error');
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+    const status = await page.evaluate(() =>
+        fetch('/api/vault/status', { headers: { Accept: 'application/json' } }).then((response) => response.json()),
+    );
+    expect(status.locked).toBe(true);
+});
+
+test('manual lock clears revealed credentials and protected API access', async ({ page }) => {
+    await registerUser(page);
+    await openLockedVault(page);
+    await unlockVault(page);
+    await addCredential(page, 'Disposable mail account', 'Never-a-real-password-992');
+
+    const listResponse = await page.evaluate(() =>
+        fetch('/api/credentials', { headers: { Accept: 'application/json' } }).then((result) => result.text()),
+    );
+    expect(listResponse).not.toContain('Never-a-real-password-992');
+
+    await page.getByRole('button', { name: 'Show password' }).click();
+    await expect(page.getByText('Never-a-real-password-992')).toBeVisible();
+    await page.getByRole('main').getByRole('button', { name: 'Lock vault' }).click();
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible();
+    await expect(page.getByText('Never-a-real-password-992')).toHaveCount(0);
+
+    const response = await page.evaluate(() =>
+        fetch('/api/credentials', { headers: { Accept: 'application/json' } }).then((result) => result.status),
+    );
+    expect(response).toBe(423);
+});
+
+test('saved inactivity timeout locks the vault using browser clock control', async ({ page }) => {
+    await registerUser(page);
+    await setAutoLock(page, 1);
+    await page.clock.install();
+    await openLockedVault(page);
+    await unlockVault(page);
+
+    await page.clock.fastForward(60_001);
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible();
+});
+
+test('zero inactivity timeout does not bypass unlock or explicit locking', async ({ page }) => {
+    await registerUser(page);
+    await setAutoLock(page, 0);
+    await page.clock.install();
+    await openLockedVault(page);
+
+    await page.clock.fastForward(60 * 60 * 1000);
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible();
+
+    await unlockVault(page);
+    await page.clock.fastForward(60 * 60 * 1000);
+    await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible();
+    await page.getByRole('main').getByRole('button', { name: 'Lock vault' }).click();
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible();
+});
+
+test('visibility change clears revealed passwords and locks the vault', async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerUser(page);
+    await openLockedVault(page);
+    await unlockVault(page);
+    await addCredential(page, 'Disposable hidden-tab account', 'Hidden-tab-test-secret');
+    await page.getByRole('button', { name: 'Show password' }).click();
+    await expect(page.getByText('Hidden-tab-test-secret')).toBeVisible();
+
+    await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+        document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await expect(page.getByRole('heading', { name: 'Your vault is locked' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Hidden-tab-test-secret')).toHaveCount(0);
+});
+
+test('logout and login as another user does not reuse unlocked vault state', async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerUser(page);
+    await openLockedVault(page);
+    await unlockVault(page);
+
+    const logoutStatus = await page.evaluate(async () => {
+        const token = document.cookie
+            .split('; ')
+            .find((cookie) => cookie.startsWith('XSRF-TOKEN='))
+            ?.slice('XSRF-TOKEN='.length);
+        const response = await fetch('/logout', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                Accept: 'application/json',
+                ...(token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {}),
+            },
+        });
+        return response.status;
+    });
+    expect(logoutStatus).toBeLessThan(400);
+
+    await registerUser(page);
+    await openLockedVault(page);
+    const protectedResponse = await page.evaluate(() =>
+        fetch('/api/credentials', { headers: { Accept: 'application/json' } }).then((result) => result.status),
+    );
+    expect(protectedResponse).toBe(423);
+});
+
+test('credential folders, favorites, search, update, and delete work after unlock', async ({ page }) => {
+    await registerUser(page);
+    await openLockedVault(page);
+    await unlockVault(page);
+
+    page.once('dialog', (dialog) => dialog.accept('E2E Personal'));
+    await page.getByRole('button', { name: '+ Create folder' }).click();
+    await page.getByLabel('Filter by folder').selectOption({ label: 'E2E Personal' });
+
+    await page.getByRole('button', { name: '+ Add credential' }).click();
+    await page.getByLabel('Title *').fill('E2E searchable account');
+    await page.getByLabel('Username or email').fill('e2e-user@example.test');
+    await page.getByLabel('Password *').fill('Disposable-crud-secret-51');
+    await page.getByLabel('Folder', { exact: true }).selectOption({ label: 'E2E Personal' });
+    await page.getByRole('button', { name: 'Save credential' }).click();
+    await expect(page.getByRole('heading', { name: 'E2E searchable account' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Add favorite' }).click();
+    await page.getByRole('button', { name: '☆ Show favorites' }).click();
+    await expect(page.getByRole('heading', { name: 'E2E searchable account' })).toBeVisible();
+
+    await page.getByRole('textbox', { name: 'Search credentials' }).fill('');
+    await page.getByRole('textbox', { name: 'Search credentials' }).fill('not a match');
+    await expect(page.getByText('No matching credentials')).toBeVisible();
+    await page.getByRole('textbox', { name: 'Search credentials' }).fill('searchable');
+    await expect(page.getByRole('heading', { name: 'E2E searchable account' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await page.getByRole('textbox', { name: 'Search credentials' }).fill('');
+    await page.getByLabel('Title *').fill('E2E updated account');
+    await page.getByRole('button', { name: 'Save credential' }).click();
+    await expect(page.getByRole('heading', { name: 'E2E updated account' })).toBeVisible();
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Delete' }).click();
+    await expect(page.getByText('Your vault is empty')).toBeVisible();
+});
