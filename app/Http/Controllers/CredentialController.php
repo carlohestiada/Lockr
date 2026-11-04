@@ -16,6 +16,12 @@ class CredentialController extends Controller
         $validated = $request->validate([
             'search' => ['sometimes', 'string', 'max:255'],
             'favorite' => ['sometimes', 'boolean'],
+            'folder_id' => [
+                'sometimes',
+                'integer',
+                Rule::exists('folders', 'id')
+                    ->where('user_id', $request->user()->id),
+            ],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
 
@@ -37,12 +43,28 @@ class CredentialController extends Controller
             $query->where('is_favorite', $validated['favorite']);
         }
 
+        if (isset($validated['folder_id'])) {
+            $query->where('folder_id', $validated['folder_id']);
+        }
+
         return response()->json($query->paginate($validated['per_page'] ?? 20));
     }
 
-    public function show(Credential $credential)
+    public function show(Request $request, Credential $credential)
     {
         Gate::authorize('view', $credential);
+
+        $validated = $request->validate([
+            'field' => ['sometimes', Rule::in(['password'])],
+        ]);
+
+        if (($validated['field'] ?? null) === 'password') {
+            return response()->json([
+                'data' => [
+                    'password' => $credential->password,
+                ],
+            ]);
+        }
 
         return response()->json([
             'data' => [

@@ -107,13 +107,13 @@ export default function PasswordGenerator() {
                 <div className="space-y-2">
                     <label htmlFor="password-length" className="flex justify-between text-sm font-medium">
                         <span>Length</span>
-                        <span>{length}</span>
+                        <span className="font-mono">{length}</span>
                     </label>
                     <input
                         id="password-length"
                         type="range"
                         min={8}
-                        max={64}
+                        max={32}
                         value={length}
                         onChange={(event) => setLength(Number(event.target.value))}
                         className="w-full accent-[#205295]"
@@ -140,9 +140,13 @@ export default function PasswordGenerator() {
                         </label>
                     ))}
                 </fieldset>
-                <Button type="button" onClick={createPassword} className="w-full bg-[#144272] hover:bg-[#0A2647]">
+                <Button type="button" onClick={createPassword} disabled={categories.length === 0} className="w-full bg-[#144272] hover:bg-[#0A2647]">
                     <RefreshCw />
                     Generate password
+                </Button>
+                <Button type="button" variant="outline" onClick={() => void copyPassword()} disabled={!password} className="w-full">
+                    <Copy />
+                    Copy &amp; Use
                 </Button>
                 {feedback && (
                     <p

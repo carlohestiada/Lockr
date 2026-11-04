@@ -113,6 +113,7 @@ test('authenticated vault visit starts locked and correct account password unloc
 
 test('dashboard uses real credential metadata, searches safely, and generates passwords securely', async ({ page }) => {
     test.setTimeout(120_000);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await registerUser(page);
     await openLockedVault(page);
     await unlockVault(page);
@@ -132,6 +133,18 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     expect(dashboardText).not.toContain('Disposable-dashboard-secret-33');
     expect(dashboardText).not.toContain('Disposable dashboard private note');
 
+    await page.setViewportSize({ width: 360, height: 800 });
+    const hasDashboardOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(hasDashboardOverflow).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 900 });
+
+    await page.getByRole('button', { name: 'Show E2E dashboard mail password' }).click();
+    await expect(page.getByText('Disposable-dashboard-secret-33', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Hide E2E dashboard mail password' }).click();
+    await expect(page.getByText('Disposable-dashboard-secret-33', { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Copy E2E dashboard mail password' }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Disposable-dashboard-secret-33');
+
     await page.getByRole('textbox', { name: 'Search credentials' }).fill('dashboard-user');
     await expect(page.getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible({ timeout: 30_000 });
     await page.getByRole('textbox', { name: 'Search credentials' }).fill('no matching dashboard item');
@@ -139,6 +152,10 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
 
     await page.getByRole('button', { name: 'Generate password' }).click();
     await expect(page.getByRole('textbox', { name: 'Generated password' })).toHaveValue(/.{20}/);
+    const generatedPassword = await page.getByRole('textbox', { name: 'Generated password' }).inputValue();
+    expect(generatedPassword).toHaveLength(20);
+    await page.getByRole('button', { name: 'Copy & Use' }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(generatedPassword);
 
     await page.getByRole('textbox', { name: 'Search credentials' }).fill('dashboard-user');
     await page.getByRole('button', { name: 'Add E2E dashboard mail to favorites' }).click();
@@ -156,7 +173,7 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await expect(page.getByRole('heading', { name: 'E2E dashboard created item' })).toBeVisible({ timeout: 30_000 });
 
     await page.locator('a[data-sidebar="menu-button"][href="/dashboard"]').click();
-    await page.getByRole('main').getByRole('button', { name: 'Lock vault' }).click({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Lock Vault' }).first().click({ timeout: 30_000 });
     await expect(page).toHaveURL(/\/vault$/, { timeout: 30_000 });
     await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible({ timeout: 30_000 });
 });

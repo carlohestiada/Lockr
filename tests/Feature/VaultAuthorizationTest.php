@@ -173,6 +173,35 @@ class VaultAuthorizationTest extends TestCase
         $this->assertStringNotContainsString('dashboard-search-private-note', $response->getContent());
     }
 
+    public function test_credential_list_filters_by_a_folder_owned_by_the_authenticated_user(): void
+    {
+        $user = User::factory()->create();
+        $folder = $user->folders()->create(['name' => 'Personal']);
+        $credential = $user->credentials()->create([
+            'title' => 'Folder credential',
+            'password' => 'not-returned',
+            'folder_id' => $folder->id,
+        ]);
+        $user->credentials()->create([
+            'title' => 'Unfiled credential',
+            'password' => 'also-not-returned',
+        ]);
+        $otherUserFolder = User::factory()->create()->folders()->create(['name' => 'Other user']);
+
+        $this->unlockVault($user);
+
+        $this->actingAs($user)
+            ->getJson("/api/credentials?folder_id={$folder->id}")
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $credential->id)
+            ->assertJsonMissingPath('data.0.password');
+
+        $this->actingAs($user)
+            ->getJson("/api/credentials?folder_id={$otherUserFolder->id}")
+            ->assertUnprocessable();
+    }
+
     public function test_unauthenticated_user_cannot_access_credentials(): void
     {
         $this->get('/api/credentials')
@@ -199,6 +228,27 @@ class VaultAuthorizationTest extends TestCase
         $response->assertSeeText('My Private Account');
         $response->assertSeeText('owner-secret-123');
         $response->assertSeeText('My private recovery notes');
+    }
+
+    public function test_credential_password_only_request_does_not_return_other_private_fields(): void
+    {
+        $owner = User::factory()->create();
+        $credential = $owner->credentials()->create([
+            'title' => 'Private mail',
+            'password' => 'password-only-secret',
+            'notes' => 'must-not-be-returned',
+        ]);
+
+        $this->unlockVault($owner);
+
+        $this->actingAs($owner)
+            ->getJson("/api/credentials/{$credential->id}?field=password")
+            ->assertOk()
+            ->assertExactJson([
+                'data' => [
+                    'password' => 'password-only-secret',
+                ],
+            ]);
     }
 
     public function test_user_can_move_credential_to_another_owned_folder(): void
