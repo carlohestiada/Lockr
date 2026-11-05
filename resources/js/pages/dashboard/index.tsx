@@ -195,6 +195,10 @@ export default function Dashboard() {
             setLocking(true);
             clearSensitiveState();
         };
+        const handlePreferencesUpdated = (event: WindowEventMap['preferences:updated']) => {
+            setAutoLockMinutes(event.detail.auto_lock_minutes);
+            setRemainingSeconds(event.detail.auto_lock_minutes * 60);
+        };
         const focusSearch = (event: KeyboardEvent) => {
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
                 event.preventDefault();
@@ -204,6 +208,7 @@ export default function Dashboard() {
 
         window.addEventListener('vault:locked', handleLocked);
         window.addEventListener('vault:locking', handleLocking);
+        window.addEventListener('preferences:updated', handlePreferencesUpdated);
         document.addEventListener('keydown', focusSearch);
         void loadDashboard();
 
@@ -211,6 +216,7 @@ export default function Dashboard() {
             cancelled = true;
             window.removeEventListener('vault:locked', handleLocked);
             window.removeEventListener('vault:locking', handleLocking);
+            window.removeEventListener('preferences:updated', handlePreferencesUpdated);
             document.removeEventListener('keydown', focusSearch);
         };
     }, [clearSensitiveState]);

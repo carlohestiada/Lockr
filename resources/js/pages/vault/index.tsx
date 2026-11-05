@@ -296,6 +296,10 @@ export default function VaultIndex() {
     useEffect(() => {
         let cancelled = false;
         const onLocked = () => markVaultLocked();
+        const onPreferencesUpdated = (event: WindowEventMap['preferences:updated']) => {
+            setAutoLockMinutes(event.detail.auto_lock_minutes);
+            setRemainingSeconds(event.detail.auto_lock_minutes * 60);
+        };
 
         async function checkVaultStatus() {
             setStatusLoading(true);
@@ -327,12 +331,14 @@ export default function VaultIndex() {
 
         window.addEventListener('vault:locked', onLocked);
         window.addEventListener('vault:locking', onLocked);
+        window.addEventListener('preferences:updated', onPreferencesUpdated);
         void checkVaultStatus();
 
         return () => {
             cancelled = true;
             window.removeEventListener('vault:locked', onLocked);
             window.removeEventListener('vault:locking', onLocked);
+            window.removeEventListener('preferences:updated', onPreferencesUpdated);
         };
     }, [loadData, markVaultLocked]);
 

@@ -169,6 +169,20 @@ class UserPreferenceTest extends TestCase
         ])->assertUnauthorized();
     }
 
+    public function test_settings_preferences_page_is_available_and_appearance_link_selects_its_tab(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/settings/security')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('settings/security'));
+
+        $this->actingAs($user)
+            ->get('/settings/appearance')
+            ->assertRedirect('/settings/security?tab=appearance');
+    }
+
     public function test_zero_auto_lock_minutes_is_allowed(): void
     {
         $user = User::factory()->create();

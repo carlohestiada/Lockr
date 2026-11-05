@@ -333,3 +333,40 @@ test('credential folders, favorites, search, update, and delete work after unloc
     await page.getByRole('button', { name: 'Delete' }).click();
     await expect(page.getByText('Your vault is empty', { exact: false })).toBeVisible();
 });
+
+test('security and appearance preferences save together and apply across the app', async ({ page }) => {
+    await registerUser(page);
+    await page.goto('/settings/security');
+
+    await expect(page.getByRole('heading', { name: 'Security & Preferences' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save Preferences' })).toBeDisabled();
+    await page.locator('input[name="auto-lock"][value="5"]').check();
+    await expect(page.getByRole('button', { name: 'Save Preferences' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Save Preferences' }).click();
+    await expect(page.getByRole('status')).toContainText('Preferences saved');
+
+    await page.getByRole('tab', { name: 'Appearance' }).click();
+    await expect(page).toHaveURL(/tab=appearance/);
+    await page.getByText('Dark', { exact: true }).click();
+    await page.locator('#accent-color').fill('#205295');
+    await page.getByLabel('Text size').selectOption('large');
+    await page.getByRole('button', { name: 'Save Preferences' }).click();
+    await expect(page.getByRole('status')).toContainText('Preferences saved');
+    await expect(page.locator('html')).toHaveClass(/dark/);
+
+    const savedPreferences = await page.evaluate(async () => {
+        const response = await fetch('/api/preferences', { headers: { Accept: 'application/json' } });
+        return (await response.json()).data;
+    });
+    expect(savedPreferences.auto_lock_minutes).toBe(5);
+    expect(savedPreferences.theme).toBe('dark');
+    expect(savedPreferences.accent_color).toBe('#205295');
+    expect(savedPreferences.font_size).toBe('large');
+
+    await page.setViewportSize({ width: 360, height: 800 });
+    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(hasHorizontalOverflow).toBe(false);
+    await page.getByLabel('Text size').selectOption('medium');
+    await page.getByRole('button', { name: 'Save Preferences' }).click();
+    await expect(page.getByRole('status')).toContainText('Preferences saved');
+});
