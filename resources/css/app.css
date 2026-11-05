@@ -84,8 +84,21 @@
 }
 
 @theme {
-    --font-sans:
-        'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-sans: Inter, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+    --color-lockr-navy: #0a2647;
+    --color-lockr-navy-active: #144272;
+    --color-lockr-primary: #003a78;
+    --color-lockr-interactive: #205295;
+    --color-lockr-accent: #2c74b3;
+    --color-lockr-canvas: #f8fafc;
+    --color-lockr-subtle: #f1f5f9;
+    --color-lockr-input: #eff4ff;
+    --color-lockr-success: #10b981;
+    --color-lockr-warning: #f59e0b;
+    --color-lockr-danger: #ef4444;
 
     --radius-lg: var(--radius);
     --radius-md: calc(var(--radius) - 2px);

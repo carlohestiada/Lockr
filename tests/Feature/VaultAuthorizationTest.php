@@ -202,13 +202,32 @@ class VaultAuthorizationTest extends TestCase
             ->assertUnprocessable();
     }
 
+    public function test_credential_list_sorts_by_last_update_time(): void
+    {
+        $user = User::factory()->create();
+        $older = $user->credentials()->create(['title' => 'Updated first', 'password' => 'first-secret']);
+        $newer = $user->credentials()->create(['title' => 'Created second', 'password' => 'second-secret']);
+
+        DB::table('credentials')
+            ->where('id', $older->id)
+            ->update(['updated_at' => now()->addMinute()]);
+
+        $this->unlockVault($user);
+
+        $this->actingAs($user)
+            ->getJson('/api/credentials?sort=updated')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $older->id)
+            ->assertJsonMissingPath('data.0.password');
+    }
+
     public function test_unauthenticated_user_cannot_access_credentials(): void
     {
         $this->get('/api/credentials')
             ->assertRedirect(route('login'));
     }
 
-    public function test_owner_can_retrieve_their_decrypted_credential(): void
+    public function test_credential_show_returns_metadata_without_password_or_notes(): void
     {
         $owner = User::factory()->create();
 
@@ -225,12 +244,15 @@ class VaultAuthorizationTest extends TestCase
             ->getJson("/api/credentials/{$credential->id}")
             ->assertOk();
 
-        $response->assertSeeText('My Private Account');
-        $response->assertSeeText('owner-secret-123');
-        $response->assertSeeText('My private recovery notes');
+        $response
+            ->assertJsonPath('data.title', 'My Private Account')
+            ->assertJsonMissingPath('data.password')
+            ->assertJsonMissingPath('data.notes');
+        $this->assertStringNotContainsString('owner-secret-123', $response->getContent());
+        $this->assertStringNotContainsString('My private recovery notes', $response->getContent());
     }
 
-    public function test_credential_password_only_request_does_not_return_other_private_fields(): void
+    public function test_reveal_returns_only_password_and_audits_without_caching(): void
     {
         $owner = User::factory()->create();
         $credential = $owner->credentials()->create([
@@ -242,13 +264,82 @@ class VaultAuthorizationTest extends TestCase
         $this->unlockVault($owner);
 
         $this->actingAs($owner)
-            ->getJson("/api/credentials/{$credential->id}?field=password")
+            ->postJson("/api/credentials/{$credential->id}/reveal")
             ->assertOk()
             ->assertExactJson([
-                'data' => [
-                    'password' => 'password-only-secret',
-                ],
-            ]);
+                'password' => 'password-only-secret',
+            ])
+            ->assertHeader('Cache-Control', 'no-store, private');
+
+        $this->assertDatabaseHas('credential_audit_logs', [
+            'user_id' => $owner->id,
+            'credential_id' => $credential->id,
+            'event' => 'revealed',
+        ]);
+    }
+
+    public function test_locked_or_unauthorized_users_cannot_reveal_a_credential_password(): void
+    {
+        $owner = User::factory()->create();
+        $credential = $owner->credentials()->create([
+            'title' => 'Private mail',
+            'password' => 'must-not-be-revealed',
+        ]);
+        $otherUser = User::factory()->create();
+
+        $this->actingAs($owner)
+            ->postJson("/api/credentials/{$credential->id}/reveal")
+            ->assertStatus(423);
+
+        $this->unlockVault($otherUser);
+
+        $this->actingAs($otherUser)
+            ->postJson("/api/credentials/{$credential->id}/reveal")
+            ->assertForbidden();
+
+        $this->assertDatabaseMissing('credential_audit_logs', [
+            'credential_id' => $credential->id,
+            'event' => 'revealed',
+        ]);
+    }
+
+    public function test_bulk_actions_validate_ownership_before_changing_credentials(): void
+    {
+        $owner = User::factory()->create();
+        $folder = $owner->folders()->create(['name' => 'Work']);
+        $first = $owner->credentials()->create(['title' => 'First', 'password' => 'first-secret']);
+        $second = $owner->credentials()->create(['title' => 'Second', 'password' => 'second-secret']);
+        $foreign = User::factory()->create()->credentials()->create([
+            'title' => 'Foreign',
+            'password' => 'foreign-secret',
+        ]);
+
+        $this->unlockVault($owner);
+
+        $this->actingAs($owner)->postJson('/api/credentials/bulk', [
+            'action' => 'move',
+            'ids' => [$first->id, $second->id],
+            'folder_id' => $folder->id,
+        ])->assertOk();
+
+        $this->assertDatabaseHas('credentials', ['id' => $first->id, 'folder_id' => $folder->id]);
+        $this->assertDatabaseHas('credentials', ['id' => $second->id, 'folder_id' => $folder->id]);
+
+        $this->actingAs($owner)->postJson('/api/credentials/bulk', [
+            'action' => 'move',
+            'ids' => [$first->id],
+            'folder_id' => null,
+        ])->assertOk();
+
+        $this->assertDatabaseHas('credentials', ['id' => $first->id, 'folder_id' => null]);
+
+        $this->actingAs($owner)->postJson('/api/credentials/bulk', [
+            'action' => 'delete',
+            'ids' => [$first->id, $foreign->id],
+        ])->assertForbidden();
+
+        $this->assertDatabaseHas('credentials', ['id' => $first->id]);
+        $this->assertDatabaseHas('credentials', ['id' => $foreign->id]);
     }
 
     public function test_user_can_move_credential_to_another_owned_folder(): void

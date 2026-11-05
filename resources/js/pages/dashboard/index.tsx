@@ -38,10 +38,6 @@ type Credential = {
     updated_at: string;
 };
 
-type CredentialSecret = {
-    data: { password: string };
-};
-
 type PaginatedCredentials = {
     data: Credential[];
     total: number;
@@ -313,9 +309,9 @@ export default function Dashboard() {
     const maxFolderCount = Math.max(1, ...folders.map((folder) => folder.credentials_count));
 
     const fetchCredentialPassword = useCallback(async (credentialId: number) => {
-        const response = await api<CredentialSecret>(`/api/credentials/${credentialId}?field=password`);
+        const response = await api<{ password: string }>(`/api/credentials/${credentialId}/reveal`, { method: 'POST' });
         if (!unlockedRef.current) throw new Error('The vault was locked before the password could be retrieved.');
-        return response.data.password;
+        return response.password;
     }, []);
 
     async function togglePassword(credential: Credential) {

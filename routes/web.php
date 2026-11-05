@@ -31,6 +31,13 @@ Route::middleware('auth')->prefix('api')->group(function () {
         ->middleware('throttle:5,1');
     Route::post('vault/lock', [VaultLockController::class, 'lock']);
 
+    Route::post('credentials/bulk', [CredentialController::class, 'bulk'])
+        ->middleware(EnsureVaultUnlocked::class);
+    Route::post('credentials/{credential}/reveal', [CredentialController::class, 'reveal'])
+        ->middleware([EnsureVaultUnlocked::class, 'throttle:20,1']);
+    Route::get('credentials/{credential}/edit', [CredentialController::class, 'edit'])
+        ->middleware(EnsureVaultUnlocked::class);
+
     Route::apiResource('credentials', CredentialController::class)
         ->only(['index', 'show', 'store', 'update', 'destroy'])
         ->middleware(EnsureVaultUnlocked::class);
