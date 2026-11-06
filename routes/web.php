@@ -23,6 +23,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('vault', function () {
         return Inertia::render('vault/index');
     })->name('vault.index');
+
+    Route::get('folders', function () {
+        return Inertia::render('folders/index');
+    })->name('folders.index');
 });
 
 Route::middleware('auth')->prefix('api')->group(function () {

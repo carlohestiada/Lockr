@@ -181,12 +181,15 @@ export default function VaultIndex() {
         if (query.get('create') !== '1') return;
 
         setEditingId(null);
-        setForm(emptyForm);
+        setForm({
+            ...emptyForm,
+            folder_id: folderFilter !== 'all' && folderFilter !== 'unfiled' ? folderFilter : '',
+        });
         setError('');
         setNotice('');
         setFormOpen(true);
         window.history.replaceState(window.history.state, '', '/vault');
-    }, [vaultLocked]);
+    }, [folderFilter, vaultLocked]);
 
     const clearCopiedClipboard = useCallback(async () => {
         const copiedValue = clipboardValueRef.current;
@@ -434,7 +437,10 @@ export default function VaultIndex() {
 
     function openCreateForm() {
         setEditingId(null);
-        setForm(emptyForm);
+        setForm({
+            ...emptyForm,
+            folder_id: folderFilter !== 'all' && folderFilter !== 'unfiled' ? folderFilter : '',
+        });
         setError('');
         setNotice('');
         setFormOpen(true);
@@ -573,36 +579,6 @@ export default function VaultIndex() {
             setError(err instanceof Error ? err.message : 'Unable to save credential.');
         } finally {
             setSaving(false);
-        }
-    }
-
-    async function createFolder() {
-        const input = window.prompt('Enter a folder name:');
-
-        if (input === null) {
-            return;
-        }
-
-        const name = input.trim();
-
-        if (!name) {
-            setError('Folder name cannot be empty.');
-            return;
-        }
-
-        setError('');
-        setNotice('');
-
-        try {
-            await api('/api/folders', {
-                method: 'POST',
-                body: JSON.stringify({ name }),
-            });
-
-            await loadData();
-            setNotice(`Folder "${name}" created successfully.`);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Unable to create folder.');
         }
     }
 
@@ -950,14 +926,13 @@ export default function VaultIndex() {
                         <p className="mt-1.5 text-sm text-slate-500">Manage your saved accounts and credentials.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <button
-                            type="button"
-                            onClick={createFolder}
+                        <Link
+                            href="/folders"
                             className="hover:bg-lockr-subtle min-h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700"
                         >
                             <FolderClosed className="mr-1.5 inline size-4" />
-                            Create Folder
-                        </button>
+                            Manage Folders
+                        </Link>
                     </div>
                 </section>
 

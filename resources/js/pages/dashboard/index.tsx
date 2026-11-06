@@ -420,7 +420,7 @@ export default function Dashboard() {
                         value={folders.length}
                         icon={FolderClosed}
                         detail={folders.length ? `${folderCredentialTotal} credentials organized` : 'Create a folder in My Vault'}
-                        href="/vault?folder=all"
+                        href="/folders"
                         loading={loading}
                     />
                     <MetricCard
@@ -697,7 +697,7 @@ export default function Dashboard() {
                                     <h2 className="text-lockr-navy text-base font-bold">Folders breakdown</h2>
                                     <p className="mt-1 text-xs text-slate-500">Your credentials by collection</p>
                                 </div>
-                                <Link href="/vault?folder=all" className="text-lockr-interactive text-xs font-semibold hover:underline">
+                                <Link href="/folders" className="text-lockr-interactive text-xs font-semibold hover:underline">
                                     Manage
                                 </Link>
                             </header>
@@ -743,7 +743,7 @@ export default function Dashboard() {
                                     )}
                                     {folders.length > 6 && (
                                         <Link
-                                            href="/vault?folder=all"
+                                            href="/folders"
                                             className="text-lockr-interactive block text-center text-xs font-medium hover:underline"
                                         >
                                             View all {folders.length} folders

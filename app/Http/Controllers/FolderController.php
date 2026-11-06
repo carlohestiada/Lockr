@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Folder;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class FolderController extends Controller
 {
@@ -22,17 +24,16 @@ class FolderController extends Controller
     {
         Gate::authorize('create', Folder::class);
 
-        $validated = $request->validate([
-            'name' => [
-                'required',
-                'string',
-                'max:100',
-                Rule::unique('folders', 'name')
-                    ->where('user_id', $request->user()->id),
-            ],
-        ]);
+        $name = $this->validatedFolderName($request);
 
-        $folder = $request->user()->folders()->create($validated);
+        try {
+            $folder = $request->user()->folders()->create(['name' => $name]);
+        } catch (QueryException $exception) {
+            $this->rethrowUnlessFolderNameConflict($exception);
+            throw ValidationException::withMessages([
+                'name' => 'You already have a folder with this name.',
+            ]);
+        }
 
         return response()->json($folder, 201);
     }
@@ -41,18 +42,16 @@ class FolderController extends Controller
     {
         Gate::authorize('update', $folder);
 
-        $validated = $request->validate([
-            'name' => [
-                'required',
-                'string',
-                'max:100',
-                Rule::unique('folders', 'name')
-                    ->where('user_id', $request->user()->id)
-                    ->ignore($folder->id),
-            ],
-        ]);
+        $name = $this->validatedFolderName($request, $folder);
 
-        $folder->update($validated);
+        try {
+            $folder->update(['name' => $name]);
+        } catch (QueryException $exception) {
+            $this->rethrowUnlessFolderNameConflict($exception);
+            throw ValidationException::withMessages([
+                'name' => 'You already have a folder with this name.',
+            ]);
+        }
 
         return response()->json(['message' => 'Folder updated.']);
     }
@@ -61,8 +60,39 @@ class FolderController extends Controller
     {
         Gate::authorize('delete', $folder);
 
-        $folder->delete();
+        DB::transaction(fn () => $folder->delete());
 
         return response()->json(['message' => 'Folder deleted.']);
+    }
+
+    private function validatedFolderName(Request $request, ?Folder $folder = null): string
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+        ]);
+
+        $duplicate = $request->user()->folders()
+            ->whereRaw('LOWER(name) = LOWER(?)', [$validated['name']])
+            ->when($folder, fn ($query) => $query->where('id', '<>', $folder->id))
+            ->exists();
+
+        if ($duplicate) {
+            throw ValidationException::withMessages([
+                'name' => 'You already have a folder with this name.',
+            ]);
+        }
+
+        return $validated['name'];
+    }
+
+    private function rethrowUnlessFolderNameConflict(QueryException $exception): void
+    {
+        $isUniqueViolation = in_array((string) $exception->getCode(), ['23000', '23505'], true);
+        $isFolderNameConflict = str_contains($exception->getMessage(), 'folders_user_id_lower_name_unique')
+            || str_contains($exception->getMessage(), 'folders_user_id_name_unique');
+
+        if (! $isUniqueViolation || ! $isFolderNameConflict) {
+            throw $exception;
+        }
     }
 }

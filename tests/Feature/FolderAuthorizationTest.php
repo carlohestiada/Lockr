@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class FolderAuthorizationTest extends TestCase
@@ -24,6 +25,36 @@ class FolderAuthorizationTest extends TestCase
 
         $response->assertJsonFragment(['name' => 'Personal']);
         $response->assertJsonMissing(['name' => 'Work']);
+    }
+
+    public function test_folder_management_page_uses_the_dedicated_page(): void
+    {
+        $this->actingAs(User::factory()->create())
+            ->get('/folders')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('folders/index'));
+    }
+
+    public function test_folder_names_are_case_insensitively_unique_per_user(): void
+    {
+        $owner = User::factory()->create();
+        $otherUser = User::factory()->create();
+        $folder = $owner->folders()->create(['name' => 'Personal']);
+
+        $this->actingAs($owner)
+            ->postJson('/api/folders', ['name' => 'personal'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('name');
+
+        $this->actingAs($owner)
+            ->putJson("/api/folders/{$folder->id}", ['name' => 'pErSoNaL'])
+            ->assertOk();
+
+        $this->actingAs($otherUser)
+            ->postJson('/api/folders', ['name' => 'PERSONAL'])
+            ->assertCreated();
+
+        $this->assertDatabaseCount('folders', 2);
     }
 
     public function test_user_cannot_update_another_users_folder(): void

@@ -151,7 +151,7 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await page.getByRole('textbox', { name: 'Search credentials' }).fill('dashboard-user');
     await expect(page.getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible({ timeout: 30_000 });
     await page.getByRole('textbox', { name: 'Search credentials' }).fill('no matching dashboard item');
-    await expect(page.getByText('No matching credentials')).toBeVisible();
+    await expect(page.getByText('No matching credentials')).toBeVisible({ timeout: 30_000 });
 
     await page.getByRole('button', { name: 'Generate password' }).click();
     await expect(page.getByRole('textbox', { name: 'Generated password' })).toHaveValue(/.{20}/);
@@ -312,8 +312,16 @@ test('credential folders, favorites, search, update, and delete work after unloc
     await openLockedVault(page);
     await unlockVault(page);
 
-    page.once('dialog', (dialog) => dialog.accept('E2E Personal'));
-    await page.getByRole('button', { name: 'Create Folder' }).click();
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Folders' }).click();
+    await expect(page).toHaveURL(/\/folders/);
+    await expect(page.getByRole('heading', { name: 'Folders', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Create Folder' }).first().click();
+    await page.getByLabel('Folder name').fill('E2E Personal');
+    await page.getByRole('button', { name: 'Create Folder', exact: true }).last().click();
+    await expect(page.getByRole('heading', { name: 'E2E Personal' })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'My Vault' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible();
+    await unlockVault(page);
     await page.getByLabel('Filter by folder').selectOption({ label: 'E2E Personal (0)' });
 
     await page.getByRole('button', { name: 'New Credential' }).click();
@@ -371,6 +379,7 @@ test('security and appearance preferences save together and apply across the app
         const response = await fetch('/api/preferences', { headers: { Accept: 'application/json' } });
         return (await response.json()).data;
     });
+
     expect(savedPreferences.auto_lock_minutes).toBe(5);
     expect(savedPreferences.theme).toBe('dark');
     expect(savedPreferences.accent_color).toBe('#205295');
@@ -382,4 +391,62 @@ test('security and appearance preferences save together and apply across the app
     await page.getByLabel('Text size').selectOption('medium');
     await page.getByRole('button', { name: 'Save Preferences' }).click();
     await expect(page.getByRole('status')).toContainText('Preferences saved');
+});
+
+test('folder management creates, renames, opens, and safely deletes folders', async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerUser(page);
+    await page.goto('/folders');
+
+    await expect(page.getByRole('heading', { name: 'Folders', exact: true })).toBeVisible();
+    await expect(page.getByText('No folders yet. Create your first folder to organize your credentials.')).toBeVisible();
+    for (const width of [360, 768, 1024, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+        expect(hasHorizontalOverflow).toBe(false);
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+
+    await page.getByRole('button', { name: 'Create Folder' }).first().click();
+    await page.getByLabel('Folder name').fill('E2E Travel');
+    await page.getByRole('button', { name: 'Create Folder', exact: true }).last().click();
+    await expect(page.getByRole('heading', { name: 'E2E Travel' })).toBeVisible();
+    await expect(page.getByText('“E2E Travel” was created.')).toBeVisible();
+
+    await page.locator('summary[aria-label="More actions for E2E Travel"]').click();
+    await page.getByRole('button', { name: 'Rename' }).click();
+    await page.getByLabel('Folder name').fill('E2E Trips');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByRole('heading', { name: 'E2E Trips' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Create Folder' }).first().click();
+    await page.getByLabel('Folder name').fill('e2e trips');
+    await page.getByRole('button', { name: 'Create Folder', exact: true }).last().click();
+    await expect(page.getByRole('alert')).toContainText('already have a folder');
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    await page.getByRole('link', { name: 'Open Folder' }).click();
+    await expect(page).toHaveURL(/\/vault\?folder=\d+$/);
+    const folderId = new URL(page.url()).searchParams.get('folder');
+    await unlockVault(page);
+    await page.getByRole('button', { name: 'New Credential' }).click();
+    await page.getByLabel('Title *').fill('E2E folder-owned credential');
+    await page.getByLabel('Password *').fill('Disposable-folder-secret-11');
+    await expect(page.getByLabel('Folder', { exact: true })).toHaveValue(folderId);
+    await page.getByRole('button', { name: 'Save credential' }).click();
+    await expect(page.getByRole('table').getByText('E2E folder-owned credential', { exact: true })).toBeVisible({ timeout: 30_000 });
+
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'My Vault' }).click();
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Folders' }).click();
+    await expect(page).toHaveURL(/\/folders$/);
+
+    await expect(page.getByText('1 credential', { exact: true })).toBeVisible();
+    await page.locator('summary[aria-label="More actions for E2E Trips"]').click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByText('Its credentials will remain in your vault and become unfiled.')).toBeVisible();
+    await page.getByRole('button', { name: 'Delete Folder' }).click();
+    await expect(page.getByRole('heading', { name: 'E2E Trips' })).toHaveCount(0);
+
+    await page.getByRole('link', { name: 'View unfiled credentials' }).click();
+    await expect(page.getByRole('table').getByText('E2E folder-owned credential', { exact: true })).toBeVisible();
 });
