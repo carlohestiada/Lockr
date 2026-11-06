@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Credential;
 use App\Models\CredentialAuditLog;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class CredentialController extends Controller
@@ -121,16 +123,31 @@ class CredentialController extends Controller
     {
         Gate::authorize('view', $credential);
 
-        CredentialAuditLog::create([
-            'user_id' => $request->user()->id,
-            'credential_id' => $credential->id,
-            'event' => 'revealed',
-            'ip' => $request->ip(),
-            'user_agent' => mb_substr((string) $request->userAgent(), 0, 1000),
-        ]);
+        $password = $credential->password;
+        $userAgent = $request->userAgent();
+
+        try {
+            CredentialAuditLog::create([
+                'user_id' => $request->user()->id,
+                'credential_id' => $credential->id,
+                'event' => 'revealed',
+                'ip' => $request->ip(),
+                'user_agent' => $userAgent === null ? null : mb_substr($userAgent, 0, 1000),
+            ]);
+        } catch (QueryException $exception) {
+            Log::error('Unable to record credential reveal audit event.', [
+                'user_id' => $request->user()->id,
+                'credential_id' => $credential->id,
+                'sql_state' => $exception->getCode(),
+            ]);
+
+            return response()->json([
+                'message' => 'The credential password is temporarily unavailable.',
+            ], 503)->header('Cache-Control', 'no-store, private');
+        }
 
         return response()->json([
-            'password' => $credential->password,
+            'password' => $password,
         ])->header('Cache-Control', 'no-store, private');
     }
 

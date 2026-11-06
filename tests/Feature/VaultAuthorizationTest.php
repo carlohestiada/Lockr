@@ -2,9 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\CredentialAuditLog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Mockery;
 use Tests\TestCase;
 
 class VaultAuthorizationTest extends TestCase
@@ -275,7 +279,95 @@ class VaultAuthorizationTest extends TestCase
             'user_id' => $owner->id,
             'credential_id' => $credential->id,
             'event' => 'revealed',
+            'user_agent' => 'Symfony',
         ]);
+
+        $auditLog = CredentialAuditLog::query()->where('credential_id', $credential->id)->sole();
+        $this->assertArrayNotHasKey('password', $auditLog->getAttributes());
+        $this->assertStringNotContainsString(
+            'password-only-secret',
+            json_encode($auditLog->toArray(), JSON_THROW_ON_ERROR)
+        );
+    }
+
+    public function test_revealing_multiple_credentials_creates_individual_audit_records(): void
+    {
+        $owner = User::factory()->create();
+        $credentials = collect(['First secret', 'Second secret'])->map(
+            fn (string $password) => $owner->credentials()->create([
+                'title' => 'Private mail',
+                'password' => $password,
+            ])
+        );
+
+        $this->unlockVault($owner);
+
+        foreach ($credentials as $credential) {
+            $this->actingAs($owner)
+                ->postJson("/api/credentials/{$credential->id}/reveal")
+                ->assertOk()
+                ->assertExactJson(['password' => $credential->password]);
+        }
+
+        $this->assertDatabaseCount('credential_audit_logs', 2);
+        foreach ($credentials as $credential) {
+            $this->assertDatabaseHas('credential_audit_logs', [
+                'user_id' => $owner->id,
+                'credential_id' => $credential->id,
+                'event' => 'revealed',
+            ]);
+        }
+    }
+
+    public function test_audit_log_ip_and_user_agent_are_nullable(): void
+    {
+        $owner = User::factory()->create();
+        $credential = $owner->credentials()->create([
+            'title' => 'Private mail',
+            'password' => 'private-password',
+        ]);
+
+        $auditLog = CredentialAuditLog::create([
+            'user_id' => $owner->id,
+            'credential_id' => $credential->id,
+            'event' => 'revealed',
+            'ip' => null,
+            'user_agent' => null,
+        ]);
+
+        $this->assertDatabaseHas('credential_audit_logs', [
+            'id' => $auditLog->id,
+            'ip' => null,
+            'user_agent' => null,
+        ]);
+    }
+
+    public function test_password_is_not_returned_when_audit_logging_fails(): void
+    {
+        $owner = User::factory()->create();
+        $credential = $owner->credentials()->create([
+            'title' => 'Private mail',
+            'password' => 'private-password',
+        ]);
+
+        $this->unlockVault($owner);
+        Schema::drop('credential_audit_logs');
+
+        Log::shouldReceive('error')
+            ->once()
+            ->with(
+                'Unable to record credential reveal audit event.',
+                Mockery::on(fn (array $context) => $context['user_id'] === $owner->id
+                    && $context['credential_id'] === $credential->id
+                    && isset($context['sql_state']))
+            );
+
+        $this->actingAs($owner)
+            ->postJson("/api/credentials/{$credential->id}/reveal")
+            ->assertStatus(503)
+            ->assertExactJson(['message' => 'The credential password is temporarily unavailable.'])
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertDontSee('private-password');
     }
 
     public function test_locked_or_unauthorized_users_cannot_reveal_a_credential_password(): void

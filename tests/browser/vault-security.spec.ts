@@ -184,7 +184,7 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await page.getByLabel('Title *').fill('E2E dashboard created item');
     await page.getByLabel('Password *').fill('Disposable-dashboard-secret-34');
     await page.getByRole('button', { name: 'Save credential' }).click();
-    await expect(page.getByRole('table').getByText('E2E dashboard created item', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'E2E dashboard created item' })).toBeVisible({ timeout: 30_000 });
 
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Dashboard' }).click();
     await page.getByRole('button', { name: 'Lock Vault' }).first().click({ timeout: 30_000 });
