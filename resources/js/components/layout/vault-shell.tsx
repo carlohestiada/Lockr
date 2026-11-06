@@ -24,6 +24,8 @@ type VaultShellProps = {
     counts?: SidebarCounts;
     autoLockMinutes?: number | null;
     autoLockActive?: boolean;
+    onLock?: () => Promise<boolean | void> | boolean | void;
+    onNewCredential?: () => void;
 };
 
 function initials(name: string): string {
@@ -46,6 +48,8 @@ export default function VaultShell({
     counts,
     autoLockMinutes = null,
     autoLockActive = false,
+    onLock,
+    onNewCredential,
 }: VaultShellProps) {
     const page = usePage<SharedData>();
     const { auth } = page.props;
@@ -55,16 +59,17 @@ export default function VaultShell({
     const searchRef = useRef<HTMLInputElement>(null);
     const mobileSearchRef = useRef<HTMLInputElement>(null);
     const drawerRef = useRef<HTMLElement>(null);
-    const menuButtonRef = useRef<HTMLButtonElement>(null);
     const pathname = new URL(page.url, window.location.origin).pathname;
     const isVaultPage = pathname === '/vault';
     const searchValue = headerSearch?.value ?? uncontrolledSearch;
-    const { lockVault, locking, error: lockError } = useVaultLock();
+    const { lockVault: fallbackLock, locking, error: lockError } = useVaultLock();
+    const runLock = useCallback(() => (onLock ? onLock() : fallbackLock()), [fallbackLock, onLock]);
     const lockFromShell = useCallback(async () => {
-        const locked = await lockVault();
-        if (locked && !isVaultPage) router.visit('/vault', { replace: true });
+        const result = await runLock();
+        const locked = result !== false;
+        if (locked && !isVaultPage && !onLock) router.visit('/vault', { replace: true });
         return locked;
-    }, [isVaultPage, lockVault]);
+    }, [isVaultPage, onLock, runLock]);
     const { minutes, remainingSeconds, statusError } = useAutoLockChip({
         minutes: autoLockMinutes,
         active: autoLockActive,
@@ -82,11 +87,15 @@ export default function VaultShell({
                     searchRef.current?.focus();
                 }
             }
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l') {
+                event.preventDefault();
+                void lockFromShell();
+            }
         };
 
         document.addEventListener('keydown', onShortcut);
         return () => document.removeEventListener('keydown', onShortcut);
-    }, []);
+    }, [lockFromShell]);
 
     useEffect(() => {
         if (!mobileNavOpen) return;
@@ -140,7 +149,8 @@ export default function VaultShell({
     }
 
     function openNewCredential() {
-        router.visit('/vault?new=1');
+        if (onNewCredential) onNewCredential();
+        else router.visit('/vault?create=1');
     }
 
     return (
@@ -190,7 +200,7 @@ export default function VaultShell({
                             <LockKeyhole className="size-4" aria-hidden="true" />
                             Lock Vault
                         </span>
-                        <ShortcutHint shortcut="L" />
+                        <ShortcutHint shortcut="L" variant="dark" />
                     </button>
                 </div>
                 <SidebarNav counts={counts} onNavigate={() => setMobileNavOpen(false)} />
@@ -201,7 +211,6 @@ export default function VaultShell({
                 <header className="fixed top-0 right-0 left-0 z-30 h-16 border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur lg:left-64">
                     <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-3">
                         <button
-                            ref={menuButtonRef}
                             type="button"
                             aria-label="Open navigation"
                             aria-expanded={mobileNavOpen}
@@ -222,7 +231,7 @@ export default function VaultShell({
                                 className="bg-lockr-subtle focus:ring-lockr-interactive h-10 w-full rounded-lg border-0 pr-16 pl-9 text-sm outline-none focus:bg-white focus:ring-2"
                             />
                             <span className="absolute top-1/2 right-2 -translate-y-1/2">
-                                <ShortcutHint shortcut="K" />
+                                <ShortcutHint shortcut="K" variant="light" />
                             </span>
                         </form>
                         <button
@@ -249,11 +258,12 @@ export default function VaultShell({
                             )}
                             <button
                                 type="button"
+                                aria-label="New Credential"
                                 onClick={openNewCredential}
-                                className="bg-lockr-interactive hover:bg-lockr-navy-active focus-visible:ring-lockr-accent hidden min-h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-white shadow-sm transition focus-visible:ring-2 focus-visible:ring-offset-2 sm:inline-flex"
+                                className="bg-lockr-interactive hover:bg-lockr-navy-active focus-visible:ring-lockr-accent inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-white shadow-sm transition focus-visible:ring-2 focus-visible:ring-offset-2 sm:px-4"
                             >
                                 <KeyRound className="size-4" aria-hidden="true" />
-                                New Credential
+                                <span className="hidden sm:inline">New Credential</span>
                             </button>
                             {actions}
                             <button

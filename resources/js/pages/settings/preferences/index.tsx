@@ -1,7 +1,6 @@
-import AppLayout from '@/layouts/app-layout';
+import VaultShell from '@/components/layout/vault-shell';
 import { api } from '@/lib/api';
-import type { BreadcrumbItem } from '@/types';
-import { Head, router, usePage } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import { Check, LoaderCircle, LockKeyhole, Palette, ShieldCheck } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UserPreferences } from './types';
@@ -23,11 +22,6 @@ const defaults: UserPreferences = {
 const tabs: { id: SettingsTab; label: string; icon: typeof LockKeyhole }[] = [
     { id: 'security', label: 'Security', icon: ShieldCheck },
     { id: 'appearance', label: 'Appearance', icon: Palette },
-];
-
-const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Vault Settings', href: '/settings/security' },
-    { title: 'Security & Preferences', href: '/settings/security' },
 ];
 
 function getTab(search: string): SettingsTab {
@@ -158,9 +152,8 @@ export default function SecurityPreferences() {
     }
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Security & Preferences" />
-            <div className="min-h-full bg-[#F8FAFC] px-4 py-6 pb-24 sm:px-6 lg:px-8 dark:bg-slate-950">
+        <VaultShell title="Security & Preferences" autoLockMinutes={savedPreferences.auto_lock_minutes}>
+            <div className="min-h-full px-4 py-6 pb-24 sm:px-6 lg:px-8">
                 <main className="mx-auto max-w-6xl">
                     <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                         <div>
@@ -205,12 +198,12 @@ export default function SecurityPreferences() {
                         </div>
                     </header>
 
-                    <div className="mt-6 border-b border-slate-200 dark:border-slate-800">
+                    <div className="mt-6">
                         <div
                             role="tablist"
                             aria-label="Settings categories"
                             onKeyDown={handleTabKeyDown}
-                            className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                            className="bg-lockr-input inline-flex max-w-full snap-x snap-mandatory gap-1 overflow-x-auto rounded-xl p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                         >
                             {tabs.map(({ id, label, icon: Icon }) => (
                                 <button
@@ -225,10 +218,10 @@ export default function SecurityPreferences() {
                                     aria-controls={`settings-panel-${id}`}
                                     tabIndex={tab === id ? 0 : -1}
                                     onClick={() => selectTab(id)}
-                                    className={`flex min-h-11 shrink-0 snap-start items-center gap-2 rounded-t-lg border-b-2 px-4 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#2C74B3] ${
+                                    className={`flex min-h-10 shrink-0 snap-start items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#2C74B3] ${
                                         tab === id
-                                            ? 'border-[#205295] bg-white text-[#0A2647] dark:bg-slate-900 dark:text-slate-100'
-                                            : 'border-transparent text-slate-500 hover:bg-white/70 hover:text-[#0A2647] dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100'
+                                            ? 'text-lockr-navy bg-white shadow-sm dark:bg-slate-900 dark:text-slate-100'
+                                            : 'hover:text-lockr-navy text-slate-500 hover:bg-white/70 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100'
                                     }`}
                                 >
                                     <Icon className="size-4" aria-hidden="true" />
@@ -309,6 +302,6 @@ export default function SecurityPreferences() {
                     </div>
                 )}
             </div>
-        </AppLayout>
+        </VaultShell>
     );
 }

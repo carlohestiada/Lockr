@@ -134,9 +134,11 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     expect(dashboardText).not.toContain('Disposable-dashboard-secret-33');
     expect(dashboardText).not.toContain('Disposable dashboard private note');
 
-    await page.setViewportSize({ width: 360, height: 800 });
-    const hasDashboardOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
-    expect(hasDashboardOverflow).toBe(false);
+    for (const width of [360, 768, 1024, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        const hasDashboardOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+        expect(hasDashboardOverflow).toBe(false);
+    }
     await page.setViewportSize({ width: 1280, height: 900 });
 
     await page.getByRole('button', { name: 'Show E2E dashboard mail password' }).click();
@@ -163,10 +165,21 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Favorites' }).click();
     await expect(page).toHaveURL(/\/vault\?favorites=1$/);
     await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Favorites' })).toHaveAttribute(
+        'aria-current',
+        'page',
+    );
     await expect(page.getByRole('table').getByText('E2E dashboard mail', { exact: true })).toBeVisible({ timeout: 30_000 });
 
+    for (const width of [360, 768, 1024, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        const hasVaultOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+        expect(hasVaultOverflow).toBe(false);
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Dashboard' }).click();
-    await page.getByRole('link', { name: 'Add credential' }).click();
+    await page.getByRole('button', { name: 'New Credential' }).click();
     await expect(page.getByLabel('Title *')).toBeVisible({ timeout: 30_000 });
     await page.getByLabel('Title *').fill('E2E dashboard created item');
     await page.getByLabel('Password *').fill('Disposable-dashboard-secret-34');

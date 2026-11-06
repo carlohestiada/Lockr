@@ -31,9 +31,19 @@ export default function useAutoLockChip({ minutes: initialMinutes, active, onExp
     }, []);
 
     useEffect(() => {
-        if (!active || minutes === null || minutes <= 0) {
+        if (!active || minutes === null) {
             setRemainingSeconds((minutes ?? 0) * 60);
             return;
+        }
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') void onExpire();
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        if (minutes <= 0) {
+            setRemainingSeconds(0);
+            return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
         }
 
         const timeoutMs = minutes * 60_000;
@@ -46,10 +56,6 @@ export default function useAutoLockChip({ minutes: initialMinutes, active, onExp
             expiryRequested = false;
             setRemainingSeconds(minutes * 60);
             setStatusError('');
-        };
-
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'hidden') void onExpire();
         };
 
         const timer = window.setInterval(() => {
@@ -78,8 +84,6 @@ export default function useAutoLockChip({ minutes: initialMinutes, active, onExp
         }, 1000);
         const activityEvents: (keyof WindowEventMap)[] = ['keydown', 'mousedown', 'pointerdown', 'scroll', 'touchstart'];
         activityEvents.forEach((event) => window.addEventListener(event, resetCountdown, { passive: true }));
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-
         return () => {
             window.clearInterval(timer);
             activityEvents.forEach((event) => window.removeEventListener(event, resetCountdown));

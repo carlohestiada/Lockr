@@ -1,5 +1,5 @@
 import { ApiError, api } from '@/lib/api';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 declare global {
     interface WindowEventMap {
@@ -40,18 +40,6 @@ export default function useVaultLock() {
             setLocking(false);
         }
     }, []);
-
-    useEffect(() => {
-        const handleShortcut = (event: KeyboardEvent) => {
-            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l') {
-                event.preventDefault();
-                void lockVault();
-            }
-        };
-
-        document.addEventListener('keydown', handleShortcut);
-        return () => document.removeEventListener('keydown', handleShortcut);
-    }, [lockVault]);
 
     return { lockVault, locking, error };
 }

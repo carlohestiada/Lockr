@@ -1,3 +1,5 @@
+import PageContainer from '@/components/layout/page-container';
+import VaultShell from '@/components/layout/vault-shell';
 import { api, ApiError } from '@/lib/api';
 import { type SharedData } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
@@ -12,21 +14,17 @@ import {
     FolderInput,
     Grid2X2,
     KeyRound,
-    LayoutDashboard,
     List,
     LockKeyhole,
     LogOut,
-    Menu,
     MoreHorizontal,
     Search,
-    Settings2,
     Shield,
     ShieldCheck,
     Star,
     Trash2,
     UserRound,
     X,
-    type LucideIcon,
 } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -83,14 +81,6 @@ const emptyForm: CredentialForm = {
     is_favorite: false,
 };
 
-const vaultNavigation: { title: string; href: string; icon: LucideIcon }[] = [
-    { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { title: 'My Vault', href: '/vault', icon: Shield },
-    { title: 'Folders', href: '/vault?folder=all', icon: FolderClosed },
-    { title: 'Favorites', href: '/vault?favorites=1', icon: Star },
-    { title: 'Settings', href: '/settings/security', icon: Settings2 },
-];
-
 function initials(value: string): string {
     return (
         value
@@ -146,8 +136,6 @@ export default function VaultIndex() {
     const [view, setView] = useState<VaultView>('table');
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [bulkFolderId, setBulkFolderId] = useState('');
-    const [mobileNavOpen, setMobileNavOpen] = useState(false);
-    const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
@@ -164,13 +152,8 @@ export default function VaultIndex() {
     const [capsLockOn, setCapsLockOn] = useState(false);
     const [unlocking, setUnlocking] = useState(false);
     const [autoLockMinutes, setAutoLockMinutes] = useState(15);
-    const [remainingSeconds, setRemainingSeconds] = useState(15 * 60);
     const [autoLockSettingLoaded, setAutoLockSettingLoaded] = useState(false);
     const vaultLockedRef = useRef(true);
-    const lastActivityRef = useRef(Date.now());
-    const lastHeartbeatRef = useRef(0);
-    const searchInputRef = useRef<HTMLInputElement>(null);
-    const mobileSearchInputRef = useRef<HTMLInputElement>(null);
     const selectAllRef = useRef<HTMLInputElement>(null);
     const revealTimersRef = useRef<Record<number, number>>({});
     const clipboardTimerRef = useRef<number | undefined>(undefined);
@@ -239,16 +222,17 @@ export default function VaultIndex() {
         clearSensitiveState();
     }, [clearSensitiveState]);
 
-    const lockVault = useCallback(async () => {
+    const lockVault = useCallback(async (): Promise<boolean> => {
         markVaultLocked();
 
         try {
             await api('/api/vault/lock', { method: 'POST', keepalive: true });
             setError('');
+            return true;
         } catch (err) {
-            if (!(err instanceof ApiError && err.status === 423)) {
-                setError(err instanceof Error ? err.message : 'Unable to lock the vault.');
-            }
+            if (err instanceof ApiError && err.status === 423) return true;
+            setError(err instanceof Error ? err.message : 'Unable to lock the vault.');
+            return false;
         }
     }, [markVaultLocked]);
 
@@ -298,7 +282,6 @@ export default function VaultIndex() {
         const onLocked = () => markVaultLocked();
         const onPreferencesUpdated = (event: WindowEventMap['preferences:updated']) => {
             setAutoLockMinutes(event.detail.auto_lock_minutes);
-            setRemainingSeconds(event.detail.auto_lock_minutes * 60);
         };
 
         async function checkVaultStatus() {
@@ -311,7 +294,6 @@ export default function VaultIndex() {
                 if (cancelled) return;
 
                 setAutoLockMinutes(preferences.data.auto_lock_minutes ?? status.auto_lock_minutes);
-                setRemainingSeconds((preferences.data.auto_lock_minutes ?? status.auto_lock_minutes) * 60);
                 setAutoLockSettingLoaded(true);
 
                 if (status.locked) {
@@ -374,26 +356,6 @@ export default function VaultIndex() {
     }, [credentials.length, selectedIds]);
 
     useEffect(() => {
-        const handleShortcut = (event: KeyboardEvent) => {
-            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-                event.preventDefault();
-                if (window.matchMedia('(max-width: 767px)').matches) {
-                    setMobileSearchOpen(true);
-                    window.setTimeout(() => mobileSearchInputRef.current?.focus(), 0);
-                } else {
-                    searchInputRef.current?.focus();
-                }
-            }
-            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l') {
-                event.preventDefault();
-                void lockVault();
-            }
-        };
-        document.addEventListener('keydown', handleShortcut);
-        return () => document.removeEventListener('keydown', handleShortcut);
-    }, [lockVault]);
-
-    useEffect(() => {
         const clearOnHidden = () => {
             if (document.visibilityState === 'hidden') clearSensitiveState();
         };
@@ -442,78 +404,6 @@ export default function VaultIndex() {
             previousFocus?.focus();
         };
     }, [formOpen]);
-
-    useEffect(() => {
-        const lockOrClearWhenHidden = () => {
-            if (document.visibilityState !== 'hidden') return;
-
-            if (vaultLockedRef.current) {
-                clearSensitiveState();
-            } else {
-                void lockVault();
-            }
-        };
-
-        document.addEventListener('visibilitychange', lockOrClearWhenHidden);
-        return () => document.removeEventListener('visibilitychange', lockOrClearWhenHidden);
-    }, [clearSensitiveState, lockVault]);
-
-    useEffect(() => {
-        if (vaultLocked) return;
-
-        const timeoutMs = autoLockMinutes * 60_000;
-        let inactivityTimer: number | undefined;
-        const countdown =
-            autoLockMinutes > 0
-                ? window.setInterval(() => {
-                      setRemainingSeconds((remaining) => Math.max(0, remaining - 1));
-                  }, 1000)
-                : undefined;
-
-        const resetInactivityTimer = () => {
-            lastActivityRef.current = Date.now();
-            if (autoLockMinutes > 0) {
-                setRemainingSeconds(autoLockMinutes * 60);
-                window.clearTimeout(inactivityTimer);
-                inactivityTimer = window.setTimeout(() => void lockVault(), timeoutMs);
-            }
-        };
-
-        const activityEvents: (keyof WindowEventMap)[] = ['keydown', 'mousedown', 'pointerdown', 'scroll', 'touchstart'];
-
-        activityEvents.forEach((eventName) => {
-            window.addEventListener(eventName, resetInactivityTimer, { passive: true });
-        });
-        if (autoLockMinutes > 0) resetInactivityTimer();
-
-        const heartbeat =
-            autoLockMinutes > 0
-                ? window.setInterval(() => {
-                      const now = Date.now();
-                      if (now - lastActivityRef.current >= 30_000 || now - lastHeartbeatRef.current < 30_000) return;
-
-                      lastHeartbeatRef.current = now;
-                      void api<{ locked: boolean }>('/api/vault/status')
-                          .then((status) => {
-                              if (status.locked) markVaultLocked();
-                          })
-                          .catch((err: unknown) => {
-                              if (!(err instanceof ApiError && err.status === 423)) {
-                                  setError(err instanceof Error ? err.message : 'Unable to refresh vault status.');
-                              }
-                          });
-                  }, 15_000)
-                : undefined;
-
-        return () => {
-            if (inactivityTimer !== undefined) window.clearTimeout(inactivityTimer);
-            if (countdown !== undefined) window.clearInterval(countdown);
-            if (heartbeat !== undefined) window.clearInterval(heartbeat);
-            activityEvents.forEach((eventName) => {
-                window.removeEventListener(eventName, resetInactivityTimer);
-            });
-        };
-    }, [autoLockMinutes, lockVault, markVaultLocked, vaultLocked]);
 
     const filteredCredentials = useMemo(() => credentials, [credentials]);
 
@@ -1029,778 +919,444 @@ export default function VaultIndex() {
     }
 
     return (
-        <div className="bg-lockr-canvas text-lockr-navy min-h-svh font-sans">
-            <Head title="My Vault" />
-            {mobileNavOpen && (
-                <button
-                    type="button"
-                    aria-label="Close navigation"
-                    className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-                    onClick={() => setMobileNavOpen(false)}
-                />
-            )}
-            <aside
-                className={`bg-lockr-navy fixed inset-y-0 left-0 z-50 flex w-64 flex-col text-white shadow-xl transition-transform lg:translate-x-0 ${
-                    mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
-                }`}
-            >
-                <div className="flex h-16 items-center gap-3 border-b border-white/10 px-5">
-                    <span className="bg-lockr-navy-active flex size-9 items-center justify-center rounded-lg">
-                        <img src="/logo.svg" alt="" className="size-6 object-contain" />
-                    </span>
-                    <span className="text-base font-semibold">Lockr</span>
-                    <span className="bg-lockr-navy-active rounded-full px-2 py-1 text-[10px] text-blue-100">Personal Vault</span>
-                    <button
-                        type="button"
-                        aria-label="Close navigation"
-                        className="ml-auto rounded-lg p-2 hover:bg-white/10 lg:hidden"
-                        onClick={() => setMobileNavOpen(false)}
-                    >
-                        <X className="size-4" />
-                    </button>
-                </div>
-                <div className="px-4 py-4">
-                    <button
-                        type="button"
-                        onClick={() => void lockVault()}
-                        className="bg-lockr-navy-active/70 hover:bg-lockr-navy-active flex min-h-11 w-full items-center justify-between rounded-lg px-3 text-sm font-medium focus-visible:ring-2 focus-visible:ring-white"
-                    >
-                        <span className="flex items-center gap-2">
-                            <LockKeyhole className="size-4" />
-                            Lock Vault
-                        </span>
-                        <kbd className="bg-lockr-navy rounded px-1.5 py-0.5 font-mono text-[10px] text-slate-300">⌘L</kbd>
-                    </button>
-                </div>
-                <nav aria-label="Main navigation" className="flex-1 space-y-1 px-3">
-                    {vaultNavigation.map(({ title, href, icon: Icon }) => {
-                        const active = title === 'My Vault';
-                        return (
-                            <Link
-                                key={title}
-                                href={href}
-                                onClick={() => setMobileNavOpen(false)}
-                                aria-current={active ? 'page' : undefined}
-                                className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-white ${
-                                    active
-                                        ? 'bg-lockr-navy-active font-medium text-white'
-                                        : 'hover:bg-lockr-navy-active/70 text-slate-300 hover:text-white'
-                                }`}
-                            >
-                                <Icon className="size-[18px]" aria-hidden="true" />
-                                <span className="flex-1">{title}</span>
-                                {title === 'My Vault' && <span className="font-mono text-xs text-blue-100">{vaultCredentialCount}</span>}
-                                {title === 'Folders' && <span className="font-mono text-xs text-blue-100">{folders.length}</span>}
-                                {title === 'Favorites' && <span className="font-mono text-xs text-blue-100">{favoriteCount}</span>}
-                            </Link>
-                        );
-                    })}
-                </nav>
-                <div className="bg-lockr-navy-active/50 m-3 rounded-xl p-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                        <span className="bg-lockr-accent flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold">
-                            {initials(auth.user.name)}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium">{auth.user.name}</span>
-                            <span className="block truncate text-xs text-slate-300">Vault unlocked</span>
-                        </span>
-                        <Link
-                            href="/settings/profile"
-                            aria-label="Profile settings"
-                            className="rounded p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
-                        >
-                            <MoreHorizontal className="size-5" />
-                        </Link>
-                    </div>
-                    <Link
-                        href={route('logout')}
-                        method="post"
-                        as="button"
-                        className="mt-3 flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-xs text-slate-300 hover:bg-white/10 hover:text-white"
-                    >
-                        <LogOut className="size-4" />
-                        Sign out
-                    </Link>
-                </div>
-            </aside>
-
-            <div className="min-h-svh lg:pl-64">
-                <header className="fixed top-0 right-0 left-0 z-30 min-h-16 border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur lg:left-64">
-                    <div className="mx-auto flex min-h-16 max-w-[1600px] items-center gap-3">
-                        <button
-                            type="button"
-                            aria-label="Open navigation"
-                            aria-expanded={mobileNavOpen}
-                            onClick={() => setMobileNavOpen(true)}
-                            className="hover:bg-lockr-subtle flex size-10 shrink-0 items-center justify-center rounded-lg text-slate-600 lg:hidden"
-                        >
-                            <Menu className="size-5" />
-                        </button>
-                        <div className="relative hidden w-full max-w-md md:block">
-                            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                            <input
-                                ref={searchInputRef}
-                                aria-label="Search credentials"
-                                value={search}
-                                onChange={(event) => {
-                                    setSearch(event.target.value);
-                                    setCurrentPage(1);
-                                }}
-                                placeholder="Search vault items..."
-                                className="bg-lockr-subtle focus:ring-lockr-interactive h-10 w-full rounded-lg pr-14 pl-9 text-sm outline-none focus:bg-white focus:ring-2"
-                            />
-                            <kbd className="absolute top-1/2 right-2 -translate-y-1/2 rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
-                                ⌘K
-                            </kbd>
-                        </div>
-                        <button
-                            type="button"
-                            aria-label="Open search"
-                            onClick={() => {
-                                setMobileSearchOpen((open) => !open);
-                                window.setTimeout(() => mobileSearchInputRef.current?.focus(), 0);
-                            }}
-                            className="hover:bg-lockr-subtle flex size-10 items-center justify-center rounded-lg text-slate-600 md:hidden"
-                        >
-                            <Search className="size-5" />
-                        </button>
-                        <div className="ml-auto flex items-center gap-2 sm:gap-3">
-                            <span className="bg-lockr-input hidden items-center gap-1.5 rounded-full px-3 py-2 text-xs text-slate-600 sm:flex">
-                                <span className="bg-lockr-success size-1.5 rounded-full" aria-hidden="true" />
-                                {autoLockMinutes > 0
-                                    ? `Auto-locks in ${Math.floor(remainingSeconds / 60)}m ${String(remainingSeconds % 60).padStart(2, '0')}s`
-                                    : 'Auto-lock off'}
-                            </span>
-                            <button
-                                type="button"
-                                onClick={openCreateForm}
-                                className="bg-lockr-interactive hover:bg-lockr-navy-active hidden min-h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-white shadow-sm transition sm:inline-flex"
-                            >
-                                <KeyRound className="size-4" />
-                                New Credential
-                            </button>
-                            <button
-                                type="button"
-                                aria-label="Lock Vault"
-                                onClick={() => void lockVault()}
-                                className="hover:bg-lockr-subtle hover:text-lockr-navy flex size-10 items-center justify-center rounded-lg text-slate-600"
-                            >
-                                <LockKeyhole className="size-5" />
-                            </button>
-                            <span
-                                className="bg-lockr-navy-active hidden size-9 items-center justify-center rounded-full text-xs font-semibold text-white sm:flex"
-                                title={auth.user.name}
-                            >
-                                {initials(auth.user.name)}
-                            </span>
-                        </div>
-                    </div>
-                    {mobileSearchOpen && (
-                        <div className="pb-3 md:hidden">
-                            <div className="relative">
-                                <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                                <input
-                                    ref={mobileSearchInputRef}
-                                    aria-label="Search credentials"
-                                    value={search}
-                                    onChange={(event) => {
-                                        setSearch(event.target.value);
-                                        setCurrentPage(1);
-                                    }}
-                                    placeholder="Search vault items..."
-                                    className="bg-lockr-subtle focus:ring-lockr-interactive h-11 w-full rounded-lg px-10 text-sm outline-none focus:ring-2"
-                                />
-                            </div>
-                        </div>
-                    )}
-                </header>
-
-                <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 pt-24 pb-24 md:px-6 lg:px-8">
-                    <section className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                        <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <h1 className="text-lockr-navy text-2xl font-semibold tracking-tight sm:text-3xl">My Vault</h1>
-                                <span className="bg-lockr-input text-lockr-navy-active rounded-full px-2.5 py-1 font-mono text-xs">
-                                    {totalCredentials} {totalCredentials === 1 ? 'credential' : 'credentials'}
-                                </span>
-                                <span className="border-lockr-success/20 inline-flex items-center gap-1.5 rounded-full border bg-emerald-50 px-2.5 py-1 text-[10px] font-medium text-emerald-800">
-                                    <ShieldCheck className="size-3.5" aria-hidden="true" />
-                                    Vault unlocked
-                                </span>
-                            </div>
-                            <p className="mt-1.5 text-sm text-slate-500">Manage your saved accounts and credentials.</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <button
-                                type="button"
-                                onClick={createFolder}
-                                className="hover:bg-lockr-subtle min-h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700"
-                            >
-                                <FolderClosed className="mr-1.5 inline size-4" />
-                                Create Folder
-                            </button>
-                            <button
-                                type="button"
-                                onClick={openCreateForm}
-                                className="bg-lockr-primary hover:bg-lockr-interactive hidden min-h-11 rounded-lg px-4 text-sm font-semibold text-white shadow-sm transition sm:inline-flex sm:items-center sm:gap-2"
-                            >
-                                <KeyRound className="size-4" />
-                                Add Credential
-                            </button>
-                        </div>
-                    </section>
-
-                    <section className="grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <p className="text-xs text-slate-500">Credentials in this view</p>
-                            <p className="mt-1 font-mono text-2xl font-semibold">{loading ? '—' : totalCredentials}</p>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <p className="text-xs text-slate-500">Starred favorites</p>
-                            <p className="mt-1 font-mono text-2xl font-semibold">{loading ? '—' : favoriteCount}</p>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <p className="text-xs text-slate-500">Password health report</p>
-                            <p className="mt-1 text-sm font-semibold text-slate-700">Not available</p>
-                            <p className="mt-1 text-xs text-slate-500">Passwords are not analyzed for reuse or breaches.</p>
-                        </div>
-                    </section>
-
-                    {error && (
-                        <div
-                            role="alert"
-                            className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
-                        >
-                            <span>{error}</span>
-                            <button type="button" aria-label="Dismiss error" onClick={() => setError('')} className="rounded p-1 hover:bg-red-100">
-                                <X className="size-4" />
-                            </button>
-                        </div>
-                    )}
-                    {notice && (
-                        <div
-                            role="status"
-                            aria-live="polite"
-                            className="flex items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
-                        >
-                            <span>{notice}</span>
-                            <button
-                                type="button"
-                                aria-label="Dismiss notification"
-                                onClick={() => setNotice('')}
-                                className="rounded p-1 hover:bg-emerald-100"
-                            >
-                                <X className="size-4" />
-                            </button>
-                        </div>
-                    )}
-
-                    <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center">
-                        <div className="relative min-w-0 flex-1">
-                            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                            <label htmlFor="vault-search" className="sr-only">
-                                Search vault items
-                            </label>
-                            <input
-                                id="vault-search"
-                                value={search}
-                                onChange={(event) => {
-                                    setSearch(event.target.value);
-                                    setCurrentPage(1);
-                                }}
-                                placeholder="Search title, username, or website..."
-                                className="bg-lockr-subtle focus:ring-lockr-interactive h-11 w-full rounded-lg border-0 pr-3 pl-9 text-sm outline-none focus:ring-2"
-                            />
-                        </div>
+        <VaultShell
+            title="My Vault"
+            headerSearch={{
+                value: search,
+                onChange: (value) => {
+                    setSearch(value);
+                    setCurrentPage(1);
+                },
+            }}
+            counts={loading ? undefined : { credentials: vaultCredentialCount, folders: folders.length, favorites: favoriteCount }}
+            autoLockMinutes={autoLockSettingLoaded ? autoLockMinutes : null}
+            autoLockActive={!vaultLocked && !statusLoading}
+            onLock={lockVault}
+            onNewCredential={openCreateForm}
+        >
+            <PageContainer className="flex flex-col gap-5 pb-24">
+                <section className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
                         <div className="flex flex-wrap items-center gap-2">
-                            <label htmlFor="vault-folder-filter" className="sr-only">
-                                Filter by folder
+                            <h1 className="text-lockr-navy text-2xl font-semibold tracking-tight sm:text-3xl">My Vault</h1>
+                            <span className="bg-lockr-input text-lockr-navy-active rounded-full px-2.5 py-1 font-mono text-xs">
+                                {totalCredentials} {totalCredentials === 1 ? 'credential' : 'credentials'}
+                            </span>
+                            <span className="border-lockr-success/20 inline-flex items-center gap-1.5 rounded-full border bg-emerald-50 px-2.5 py-1 text-[10px] font-medium text-emerald-800">
+                                <ShieldCheck className="size-3.5" aria-hidden="true" />
+                                Vault unlocked
+                            </span>
+                        </div>
+                        <p className="mt-1.5 text-sm text-slate-500">Manage your saved accounts and credentials.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={createFolder}
+                            className="hover:bg-lockr-subtle min-h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700"
+                        >
+                            <FolderClosed className="mr-1.5 inline size-4" />
+                            Create Folder
+                        </button>
+                    </div>
+                </section>
+
+                <section className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <p className="text-xs text-slate-500">Credentials in this view</p>
+                        <p className="mt-1 font-mono text-2xl font-semibold">{loading ? '—' : totalCredentials}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <p className="text-xs text-slate-500">Starred favorites</p>
+                        <p className="mt-1 font-mono text-2xl font-semibold">{loading ? '—' : favoriteCount}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <p className="text-xs text-slate-500">Password health report</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-700">Not available</p>
+                        <p className="mt-1 text-xs text-slate-500">Passwords are not analyzed for reuse or breaches.</p>
+                    </div>
+                </section>
+
+                {error && (
+                    <div
+                        role="alert"
+                        className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                    >
+                        <span>{error}</span>
+                        <button type="button" aria-label="Dismiss error" onClick={() => setError('')} className="rounded p-1 hover:bg-red-100">
+                            <X className="size-4" />
+                        </button>
+                    </div>
+                )}
+                {notice && (
+                    <div
+                        role="status"
+                        aria-live="polite"
+                        className="flex items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+                    >
+                        <span>{notice}</span>
+                        <button
+                            type="button"
+                            aria-label="Dismiss notification"
+                            onClick={() => setNotice('')}
+                            className="rounded p-1 hover:bg-emerald-100"
+                        >
+                            <X className="size-4" />
+                        </button>
+                    </div>
+                )}
+
+                <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center">
+                    <div className="relative min-w-0 flex-1">
+                        <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                        <label htmlFor="vault-search" className="sr-only">
+                            Search vault items
+                        </label>
+                        <input
+                            id="vault-search"
+                            value={search}
+                            onChange={(event) => {
+                                setSearch(event.target.value);
+                                setCurrentPage(1);
+                            }}
+                            placeholder="Search title, username, or website..."
+                            className="bg-lockr-subtle focus:ring-lockr-interactive h-11 w-full rounded-lg border-0 pr-3 pl-9 text-sm outline-none focus:ring-2"
+                        />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <label htmlFor="vault-folder-filter" className="sr-only">
+                            Filter by folder
+                        </label>
+                        <select
+                            id="vault-folder-filter"
+                            value={folderFilter}
+                            onChange={(event) => {
+                                setFolderFilter(event.target.value);
+                                setCurrentPage(1);
+                            }}
+                            className="focus:ring-lockr-interactive min-h-11 min-w-32 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2"
+                        >
+                            <option value="all">All Folders ({folders.length})</option>
+                            <option value="unfiled">Unfiled</option>
+                            {folders.map((folder) => (
+                                <option key={folder.id} value={folder.id}>
+                                    {folder.name} ({folder.credentials_count ?? 0})
+                                </option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            aria-pressed={favoritesOnly}
+                            onClick={() => {
+                                setFavoritesOnly((value) => !value);
+                                setCurrentPage(1);
+                            }}
+                            className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition ${
+                                favoritesOnly
+                                    ? 'border-amber-300 bg-amber-50 text-amber-800'
+                                    : 'hover:bg-lockr-subtle border-slate-200 bg-white text-slate-600'
+                            }`}
+                        >
+                            <Star className={`size-4 ${favoritesOnly ? 'fill-current' : ''}`} aria-hidden="true" />
+                            Favorites
+                        </button>
+                        <label htmlFor="vault-sort" className="sr-only">
+                            Sort credentials
+                        </label>
+                        <select
+                            id="vault-sort"
+                            value={sortOrder}
+                            onChange={(event) => {
+                                setSortOrder(event.target.value as SortOrder);
+                                setCurrentPage(1);
+                            }}
+                            className="focus:ring-lockr-interactive min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2"
+                        >
+                            <option value="updated">Recently Updated</option>
+                            <option value="title">Title A–Z</option>
+                            <option value="folder">Folder</option>
+                        </select>
+                        <div className="hidden rounded-lg border border-slate-200 p-1 md:flex" aria-label="Credential layout">
+                            <button
+                                type="button"
+                                aria-label="Table view"
+                                aria-pressed={view === 'table'}
+                                onClick={() => setView('table')}
+                                className={`rounded p-1.5 ${view === 'table' ? 'bg-lockr-input text-lockr-navy' : 'text-slate-500'}`}
+                            >
+                                <List className="size-4" />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="Grid view"
+                                aria-pressed={view === 'grid'}
+                                onClick={() => setView('grid')}
+                                className={`rounded p-1.5 ${view === 'grid' ? 'bg-lockr-input text-lockr-navy' : 'text-slate-500'}`}
+                            >
+                                <Grid2X2 className="size-4" />
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={openCreateForm}
+                            className="bg-lockr-interactive hover:bg-lockr-navy-active inline-flex min-h-11 items-center gap-2 rounded-lg px-4 text-sm font-semibold text-white sm:hidden"
+                        >
+                            <KeyRound className="size-4" />
+                            Add
+                        </button>
+                    </div>
+                </section>
+
+                {(search || folderFilter !== 'all' || favoritesOnly) && (
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-slate-500">Active filters:</span>
+                        {search && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSearch('');
+                                    setCurrentPage(1);
+                                }}
+                                className="bg-lockr-input text-lockr-navy-active rounded-full px-2.5 py-1"
+                            >
+                                Search: {search} <X className="ml-1 inline size-3" />
+                            </button>
+                        )}
+                        {folderFilter !== 'all' && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setFolderFilter('all');
+                                    setCurrentPage(1);
+                                }}
+                                className="bg-lockr-input text-lockr-navy-active rounded-full px-2.5 py-1"
+                            >
+                                Folder: {folderFilter === 'unfiled' ? 'Unfiled' : folders.find((item) => String(item.id) === folderFilter)?.name}{' '}
+                                <X className="ml-1 inline size-3" />
+                            </button>
+                        )}
+                        {favoritesOnly && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setFavoritesOnly(false);
+                                    setCurrentPage(1);
+                                }}
+                                className="bg-lockr-input text-lockr-navy-active rounded-full px-2.5 py-1"
+                            >
+                                Favorites <X className="ml-1 inline size-3" />
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSearch('');
+                                setFolderFilter('all');
+                                setFavoritesOnly(false);
+                                setCurrentPage(1);
+                            }}
+                            className="text-lockr-interactive font-semibold hover:underline"
+                        >
+                            Clear all
+                        </button>
+                    </div>
+                )}
+
+                {selectedIds.length > 0 && (
+                    <section
+                        className="bg-lockr-navy sticky bottom-2 z-20 flex flex-wrap items-center gap-2 rounded-xl p-3 text-white shadow-xl"
+                        aria-live="polite"
+                    >
+                        <span className="bg-lockr-interactive mr-2 rounded-md px-2 py-1 font-mono text-xs">{selectedIds.length}</span>
+                        <span className="mr-auto text-sm font-medium">credentials selected</span>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <label htmlFor="bulk-folder" className="sr-only">
+                                Move selected credentials to folder
                             </label>
                             <select
-                                id="vault-folder-filter"
-                                value={folderFilter}
-                                onChange={(event) => {
-                                    setFolderFilter(event.target.value);
-                                    setCurrentPage(1);
-                                }}
-                                className="focus:ring-lockr-interactive min-h-11 min-w-32 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2"
+                                id="bulk-folder"
+                                value={bulkFolderId}
+                                onChange={(event) => setBulkFolderId(event.target.value)}
+                                className="text-lockr-navy min-h-10 max-w-36 rounded-md bg-white px-2 text-xs"
                             >
-                                <option value="all">All Folders ({folders.length})</option>
+                                <option value="">Move to folder…</option>
                                 <option value="unfiled">Unfiled</option>
                                 {folders.map((folder) => (
                                     <option key={folder.id} value={folder.id}>
-                                        {folder.name} ({folder.credentials_count ?? 0})
+                                        {folder.name}
                                     </option>
                                 ))}
                             </select>
                             <button
                                 type="button"
-                                aria-pressed={favoritesOnly}
-                                onClick={() => {
-                                    setFavoritesOnly((value) => !value);
-                                    setCurrentPage(1);
-                                }}
-                                className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition ${
-                                    favoritesOnly
-                                        ? 'border-amber-300 bg-amber-50 text-amber-800'
-                                        : 'hover:bg-lockr-subtle border-slate-200 bg-white text-slate-600'
-                                }`}
+                                onClick={() => void performBulkAction('move')}
+                                className="bg-lockr-navy-active hover:bg-lockr-interactive inline-flex min-h-10 items-center gap-1 rounded-md px-3 text-xs"
                             >
-                                <Star className={`size-4 ${favoritesOnly ? 'fill-current' : ''}`} aria-hidden="true" />
-                                Favorites
+                                <FolderInput className="size-4" />
+                                Move
                             </button>
-                            <label htmlFor="vault-sort" className="sr-only">
-                                Sort credentials
-                            </label>
-                            <select
-                                id="vault-sort"
-                                value={sortOrder}
-                                onChange={(event) => {
-                                    setSortOrder(event.target.value as SortOrder);
-                                    setCurrentPage(1);
-                                }}
-                                className="focus:ring-lockr-interactive min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2"
-                            >
-                                <option value="updated">Recently Updated</option>
-                                <option value="title">Title A–Z</option>
-                                <option value="folder">Folder</option>
-                            </select>
-                            <div className="hidden rounded-lg border border-slate-200 p-1 md:flex" aria-label="Credential layout">
-                                <button
-                                    type="button"
-                                    aria-label="Table view"
-                                    aria-pressed={view === 'table'}
-                                    onClick={() => setView('table')}
-                                    className={`rounded p-1.5 ${view === 'table' ? 'bg-lockr-input text-lockr-navy' : 'text-slate-500'}`}
-                                >
-                                    <List className="size-4" />
-                                </button>
-                                <button
-                                    type="button"
-                                    aria-label="Grid view"
-                                    aria-pressed={view === 'grid'}
-                                    onClick={() => setView('grid')}
-                                    className={`rounded p-1.5 ${view === 'grid' ? 'bg-lockr-input text-lockr-navy' : 'text-slate-500'}`}
-                                >
-                                    <Grid2X2 className="size-4" />
-                                </button>
-                            </div>
                             <button
                                 type="button"
-                                onClick={openCreateForm}
-                                className="bg-lockr-interactive hover:bg-lockr-navy-active inline-flex min-h-11 items-center gap-2 rounded-lg px-4 text-sm font-semibold text-white sm:hidden"
+                                onClick={() => void performBulkAction('favorite')}
+                                className="bg-lockr-navy-active hover:bg-lockr-interactive inline-flex min-h-10 items-center gap-1 rounded-md px-3 text-xs"
                             >
-                                <KeyRound className="size-4" />
-                                Add
+                                <Star className="size-4" />
+                                Favorite
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void performBulkAction('delete')}
+                                className="inline-flex min-h-10 items-center gap-1 rounded-md bg-red-700 px-3 text-xs hover:bg-red-600"
+                            >
+                                <Trash2 className="size-4" />
+                                Delete
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="Clear selection"
+                                onClick={() => setSelectedIds([])}
+                                className="flex size-10 items-center justify-center rounded-md text-slate-300 hover:bg-white/10"
+                            >
+                                <X className="size-4" />
                             </button>
                         </div>
                     </section>
+                )}
 
-                    {(search || folderFilter !== 'all' || favoritesOnly) && (
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                            <span className="text-slate-500">Active filters:</span>
-                            {search && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setSearch('');
-                                        setCurrentPage(1);
-                                    }}
-                                    className="bg-lockr-input text-lockr-navy-active rounded-full px-2.5 py-1"
-                                >
-                                    Search: {search} <X className="ml-1 inline size-3" />
-                                </button>
-                            )}
-                            {folderFilter !== 'all' && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setFolderFilter('all');
-                                        setCurrentPage(1);
-                                    }}
-                                    className="bg-lockr-input text-lockr-navy-active rounded-full px-2.5 py-1"
-                                >
-                                    Folder: {folderFilter === 'unfiled' ? 'Unfiled' : folders.find((item) => String(item.id) === folderFilter)?.name}{' '}
-                                    <X className="ml-1 inline size-3" />
-                                </button>
-                            )}
-                            {favoritesOnly && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setFavoritesOnly(false);
-                                        setCurrentPage(1);
-                                    }}
-                                    className="bg-lockr-input text-lockr-navy-active rounded-full px-2.5 py-1"
-                                >
-                                    Favorites <X className="ml-1 inline size-3" />
-                                </button>
-                            )}
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setSearch('');
-                                    setFolderFilter('all');
-                                    setFavoritesOnly(false);
-                                    setCurrentPage(1);
-                                }}
-                                className="text-lockr-interactive font-semibold hover:underline"
-                            >
-                                Clear all
-                            </button>
+                <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                    {loading ? (
+                        <div className="space-y-3 p-5" aria-label="Loading credentials" role="status">
+                            {[0, 1, 2, 3].map((row) => (
+                                <div key={row} className="bg-lockr-subtle h-16 animate-pulse rounded-lg" />
+                            ))}
+                            <span className="sr-only">Loading your vault</span>
                         </div>
-                    )}
-
-                    {selectedIds.length > 0 && (
-                        <section
-                            className="bg-lockr-navy sticky bottom-2 z-20 flex flex-wrap items-center gap-2 rounded-xl p-3 text-white shadow-xl"
-                            aria-live="polite"
-                        >
-                            <span className="bg-lockr-interactive mr-2 rounded-md px-2 py-1 font-mono text-xs">{selectedIds.length}</span>
-                            <span className="mr-auto text-sm font-medium">credentials selected</span>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <label htmlFor="bulk-folder" className="sr-only">
-                                    Move selected credentials to folder
-                                </label>
-                                <select
-                                    id="bulk-folder"
-                                    value={bulkFolderId}
-                                    onChange={(event) => setBulkFolderId(event.target.value)}
-                                    className="text-lockr-navy min-h-10 max-w-36 rounded-md bg-white px-2 text-xs"
-                                >
-                                    <option value="">Move to folder…</option>
-                                    <option value="unfiled">Unfiled</option>
-                                    {folders.map((folder) => (
-                                        <option key={folder.id} value={folder.id}>
-                                            {folder.name}
-                                        </option>
-                                    ))}
-                                </select>
+                    ) : filteredCredentials.length === 0 ? (
+                        <div className="px-5 py-16 text-center">
+                            <span className="bg-lockr-input text-lockr-interactive mx-auto flex size-12 items-center justify-center rounded-2xl">
+                                <KeyRound className="size-6" />
+                            </span>
+                            <h2 className="text-lockr-navy mt-4 font-semibold">
+                                {vaultCredentialCount === 0 ? 'Your vault is empty' : 'No matching credentials'}
+                            </h2>
+                            <p className="mt-1 text-sm text-slate-500">
+                                {vaultCredentialCount === 0 ? 'Add your first credential to get started.' : 'Try another search or filter.'}
+                            </p>
+                            {vaultCredentialCount === 0 && (
                                 <button
                                     type="button"
-                                    onClick={() => void performBulkAction('move')}
-                                    className="bg-lockr-navy-active hover:bg-lockr-interactive inline-flex min-h-10 items-center gap-1 rounded-md px-3 text-xs"
+                                    onClick={openCreateForm}
+                                    className="bg-lockr-primary hover:bg-lockr-interactive mt-4 min-h-10 rounded-lg px-4 text-sm font-semibold text-white"
                                 >
-                                    <FolderInput className="size-4" />
-                                    Move
+                                    Add your first credential
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={() => void performBulkAction('favorite')}
-                                    className="bg-lockr-navy-active hover:bg-lockr-interactive inline-flex min-h-10 items-center gap-1 rounded-md px-3 text-xs"
-                                >
-                                    <Star className="size-4" />
-                                    Favorite
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => void performBulkAction('delete')}
-                                    className="inline-flex min-h-10 items-center gap-1 rounded-md bg-red-700 px-3 text-xs hover:bg-red-600"
-                                >
-                                    <Trash2 className="size-4" />
-                                    Delete
-                                </button>
-                                <button
-                                    type="button"
-                                    aria-label="Clear selection"
-                                    onClick={() => setSelectedIds([])}
-                                    className="flex size-10 items-center justify-center rounded-md text-slate-300 hover:bg-white/10"
-                                >
-                                    <X className="size-4" />
-                                </button>
-                            </div>
-                        </section>
-                    )}
-
-                    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                        {loading ? (
-                            <div className="space-y-3 p-5" aria-label="Loading credentials" role="status">
-                                {[0, 1, 2, 3].map((row) => (
-                                    <div key={row} className="bg-lockr-subtle h-16 animate-pulse rounded-lg" />
-                                ))}
-                                <span className="sr-only">Loading your vault</span>
-                            </div>
-                        ) : filteredCredentials.length === 0 ? (
-                            <div className="px-5 py-16 text-center">
-                                <span className="bg-lockr-input text-lockr-interactive mx-auto flex size-12 items-center justify-center rounded-2xl">
-                                    <KeyRound className="size-6" />
-                                </span>
-                                <h2 className="text-lockr-navy mt-4 font-semibold">
-                                    {vaultCredentialCount === 0 ? 'Your vault is empty' : 'No matching credentials'}
-                                </h2>
-                                <p className="mt-1 text-sm text-slate-500">
-                                    {vaultCredentialCount === 0 ? 'Add your first credential to get started.' : 'Try another search or filter.'}
-                                </p>
-                                {vaultCredentialCount === 0 && (
-                                    <button
-                                        type="button"
-                                        onClick={openCreateForm}
-                                        className="bg-lockr-primary hover:bg-lockr-interactive mt-4 min-h-10 rounded-lg px-4 text-sm font-semibold text-white"
-                                    >
-                                        Add your first credential
-                                    </button>
-                                )}
-                            </div>
-                        ) : (
-                            <>
-                                <div className={`${view === 'table' ? 'hidden md:block' : 'hidden'} overflow-x-auto`}>
-                                    <table className="w-full border-collapse text-left">
-                                        <thead className="bg-lockr-input text-[11px] font-semibold tracking-wide text-slate-600 uppercase">
-                                            <tr>
-                                                <th scope="col" className="w-12 py-3 pl-4 text-center">
-                                                    <input
-                                                        ref={selectAllRef}
-                                                        type="checkbox"
-                                                        aria-label="Select all credentials on this page"
-                                                        checked={credentials.length > 0 && selectedIds.length === credentials.length}
-                                                        onChange={(event) =>
-                                                            setSelectedIds(event.target.checked ? credentials.map((item) => item.id) : [])
-                                                        }
-                                                        className="accent-lockr-interactive size-4 rounded"
-                                                    />
-                                                </th>
-                                                <th scope="col" className="min-w-56 px-4 py-3">
-                                                    Title &amp; Website
-                                                </th>
-                                                <th scope="col" className="min-w-44 px-4 py-3">
-                                                    Username / Email
-                                                </th>
-                                                <th scope="col" className="min-w-52 px-4 py-3">
-                                                    Password
-                                                </th>
-                                                <th scope="col" className="hidden min-w-32 px-4 py-3 lg:table-cell">
-                                                    Folder
-                                                </th>
-                                                <th scope="col" className="w-14 px-3 py-3 text-center">
-                                                    Fav
-                                                </th>
-                                                <th scope="col" className="hidden min-w-24 px-4 py-3 xl:table-cell">
-                                                    Modified
-                                                </th>
-                                                <th scope="col" className="w-24 px-3 py-3 text-right">
-                                                    Actions
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100 text-sm">
-                                            {filteredCredentials.map((credential) => {
-                                                const website = safeWebsiteUrl(credential.website_url);
-                                                const selected = selectedIds.includes(credential.id);
-                                                return (
-                                                    <tr key={credential.id} className="group hover:bg-lockr-canvas transition-colors">
-                                                        <td className="py-3 pl-4 text-center">
-                                                            <input
-                                                                type="checkbox"
-                                                                aria-label={`Select ${credential.title}`}
-                                                                checked={selected}
-                                                                onChange={(event) =>
-                                                                    setSelectedIds((ids) =>
-                                                                        event.target.checked
-                                                                            ? [...ids, credential.id]
-                                                                            : ids.filter((id) => id !== credential.id),
-                                                                    )
-                                                                }
-                                                                className="accent-lockr-interactive size-4 rounded"
-                                                            />
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <div className="flex min-w-0 items-center gap-3">
-                                                                <span className="bg-lockr-navy flex size-9 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold text-white">
-                                                                    {initials(credential.title)}
-                                                                </span>
-                                                                <span className="min-w-0">
-                                                                    <span className="text-lockr-navy block truncate font-semibold">
-                                                                        {credential.title}
-                                                                    </span>
-                                                                    {website ? (
-                                                                        <a
-                                                                            href={website}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            className="hover:text-lockr-accent inline-flex max-w-full items-center gap-1 truncate text-xs text-slate-500"
-                                                                        >
-                                                                            {new URL(website).hostname}
-                                                                            <ExternalLink className="size-3 shrink-0" />
-                                                                        </a>
-                                                                    ) : (
-                                                                        <span className="text-xs text-slate-400">No website</span>
-                                                                    )}
-                                                                </span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-3 font-mono text-xs text-slate-600">
-                                                            <span className="flex max-w-52 items-center justify-between gap-2">
-                                                                <span className="truncate">{credential.username || '—'}</span>
-                                                                {credential.username && (
-                                                                    <button
-                                                                        type="button"
-                                                                        aria-label={`Copy ${credential.title} username`}
-                                                                        onClick={() => void copyText(credential.username!, 'Username')}
-                                                                        className="hover:bg-lockr-input hover:text-lockr-interactive flex size-9 shrink-0 items-center justify-center rounded text-slate-400"
-                                                                    >
-                                                                        <Copy className="size-4" />
-                                                                    </button>
-                                                                )}
+                            )}
+                        </div>
+                    ) : (
+                        <>
+                            <div className={`${view === 'table' ? 'hidden md:block' : 'hidden'} overflow-x-auto`}>
+                                <table className="w-full border-collapse text-left">
+                                    <thead className="bg-lockr-input text-[11px] font-semibold tracking-wide text-slate-600 uppercase">
+                                        <tr>
+                                            <th scope="col" className="w-12 py-3 pl-4 text-center">
+                                                <input
+                                                    ref={selectAllRef}
+                                                    type="checkbox"
+                                                    aria-label="Select all credentials on this page"
+                                                    checked={credentials.length > 0 && selectedIds.length === credentials.length}
+                                                    onChange={(event) =>
+                                                        setSelectedIds(event.target.checked ? credentials.map((item) => item.id) : [])
+                                                    }
+                                                    className="accent-lockr-interactive size-4 rounded"
+                                                />
+                                            </th>
+                                            <th scope="col" className="min-w-56 px-4 py-3">
+                                                Title &amp; Website
+                                            </th>
+                                            <th scope="col" className="min-w-44 px-4 py-3">
+                                                Username / Email
+                                            </th>
+                                            <th scope="col" className="min-w-52 px-4 py-3">
+                                                Password
+                                            </th>
+                                            <th scope="col" className="hidden min-w-32 px-4 py-3 lg:table-cell">
+                                                Folder
+                                            </th>
+                                            <th scope="col" className="w-14 px-3 py-3 text-center">
+                                                Fav
+                                            </th>
+                                            <th scope="col" className="hidden min-w-24 px-4 py-3 xl:table-cell">
+                                                Modified
+                                            </th>
+                                            <th scope="col" className="w-24 px-3 py-3 text-right">
+                                                Actions
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 text-sm">
+                                        {filteredCredentials.map((credential) => {
+                                            const website = safeWebsiteUrl(credential.website_url);
+                                            const selected = selectedIds.includes(credential.id);
+                                            return (
+                                                <tr key={credential.id} className="group hover:bg-lockr-canvas transition-colors">
+                                                    <td className="py-3 pl-4 text-center">
+                                                        <input
+                                                            type="checkbox"
+                                                            aria-label={`Select ${credential.title}`}
+                                                            checked={selected}
+                                                            onChange={(event) =>
+                                                                setSelectedIds((ids) =>
+                                                                    event.target.checked
+                                                                        ? [...ids, credential.id]
+                                                                        : ids.filter((id) => id !== credential.id),
+                                                                )
+                                                            }
+                                                            className="accent-lockr-interactive size-4 rounded"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex min-w-0 items-center gap-3">
+                                                            <span className="bg-lockr-navy flex size-9 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold text-white">
+                                                                {initials(credential.title)}
                                                             </span>
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <div className="flex items-center gap-1.5 font-mono text-xs">
-                                                                <span className="max-w-36 truncate text-slate-600">
-                                                                    {visiblePasswords[credential.id] ?? '••••••••••••••••'}
+                                                            <span className="min-w-0">
+                                                                <span className="text-lockr-navy block truncate font-semibold">
+                                                                    {credential.title}
                                                                 </span>
-                                                                <button
-                                                                    type="button"
-                                                                    aria-label={
-                                                                        visiblePasswords[credential.id] !== undefined
-                                                                            ? `Hide ${credential.title} password`
-                                                                            : `Reveal ${credential.title} password`
-                                                                    }
-                                                                    onClick={() => void togglePassword(credential.id)}
-                                                                    disabled={passwordLoadingId === credential.id}
-                                                                    className="hover:bg-lockr-input hover:text-lockr-navy flex size-9 items-center justify-center rounded text-slate-400 disabled:opacity-50"
-                                                                >
-                                                                    {passwordLoadingId === credential.id ? (
-                                                                        <span className="border-t-lockr-interactive size-4 animate-spin rounded-full border-2 border-slate-300" />
-                                                                    ) : visiblePasswords[credential.id] !== undefined ? (
-                                                                        <EyeOff className="size-4" />
-                                                                    ) : (
-                                                                        <Eye className="size-4" />
-                                                                    )}
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    aria-label={`Copy ${credential.title} password`}
-                                                                    onClick={() => void copyCredentialPassword(credential.id)}
-                                                                    className="hover:bg-lockr-input hover:text-lockr-interactive flex size-9 items-center justify-center rounded text-slate-400"
-                                                                >
-                                                                    <KeyRound className="size-4" />
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                        <td className="hidden px-4 py-3 lg:table-cell">
-                                                            <span className="bg-lockr-input text-lockr-navy-active rounded-md px-2.5 py-1 text-xs font-medium">
-                                                                {credential.folder?.name ?? 'Unfiled'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-3 py-3 text-center">
-                                                            <button
-                                                                type="button"
-                                                                aria-label={
-                                                                    credential.is_favorite
-                                                                        ? `Remove ${credential.title} from favorites`
-                                                                        : `Add ${credential.title} to favorites`
-                                                                }
-                                                                aria-pressed={credential.is_favorite}
-                                                                onClick={() => void toggleFavorite(credential)}
-                                                                className={`flex size-9 items-center justify-center rounded-lg ${credential.is_favorite ? 'text-lockr-warning' : 'hover:text-lockr-warning text-slate-300'}`}
-                                                            >
-                                                                <Star className={`size-5 ${credential.is_favorite ? 'fill-current' : ''}`} />
-                                                            </button>
-                                                        </td>
-                                                        <td className="hidden px-4 py-3 text-xs text-slate-500 xl:table-cell">
-                                                            {relativeDate(credential.updated_at)}
-                                                        </td>
-                                                        <td className="px-3 py-3 text-right">
-                                                            <details className="relative inline-block text-left">
-                                                                <summary
-                                                                    aria-label={`Actions for ${credential.title}`}
-                                                                    className="hover:bg-lockr-input flex size-9 cursor-pointer list-none items-center justify-center rounded-lg text-slate-500 [&::-webkit-details-marker]:hidden"
-                                                                >
-                                                                    <MoreHorizontal className="size-5" />
-                                                                </summary>
-                                                                <div className="absolute right-0 z-20 mt-1 min-w-32 rounded-lg border border-slate-200 bg-white p-1 text-left shadow-lg">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => void openEditForm(credential.id)}
-                                                                        className="hover:bg-lockr-subtle block w-full rounded px-3 py-2 text-xs"
-                                                                    >
-                                                                        Edit
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => void deleteCredential(credential)}
-                                                                        className="block w-full rounded px-3 py-2 text-left text-xs text-red-700 hover:bg-red-50"
-                                                                    >
-                                                                        Delete
-                                                                    </button>
-                                                                </div>
-                                                            </details>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                <div
-                                    className={`${view === 'grid' ? 'md:grid md:grid-cols-2 xl:grid-cols-3' : 'md:hidden'} divide-y divide-slate-100`}
-                                >
-                                    {filteredCredentials.map((credential) => {
-                                        const website = safeWebsiteUrl(credential.website_url);
-                                        return (
-                                            <article key={`card-${credential.id}`} className="min-w-0 p-4">
-                                                <div className="flex min-w-0 items-start gap-3">
-                                                    <input
-                                                        type="checkbox"
-                                                        aria-label={`Select ${credential.title}`}
-                                                        checked={selectedIds.includes(credential.id)}
-                                                        onChange={(event) =>
-                                                            setSelectedIds((ids) =>
-                                                                event.target.checked
-                                                                    ? [...ids, credential.id]
-                                                                    : ids.filter((id) => id !== credential.id),
-                                                            )
-                                                        }
-                                                        className="accent-lockr-interactive mt-2 size-5 shrink-0 rounded"
-                                                    />
-                                                    <span className="bg-lockr-navy flex size-10 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold text-white">
-                                                        {initials(credential.title)}
-                                                    </span>
-                                                    <div className="min-w-0 flex-1">
-                                                        <div className="flex items-start justify-between gap-2">
-                                                            <div className="min-w-0">
-                                                                <h2 className="truncate text-sm font-semibold">{credential.title}</h2>
                                                                 {website ? (
                                                                     <a
                                                                         href={website}
                                                                         target="_blank"
                                                                         rel="noopener noreferrer"
-                                                                        className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-xs text-slate-500"
+                                                                        className="hover:text-lockr-accent inline-flex max-w-full items-center gap-1 truncate text-xs text-slate-500"
                                                                     >
                                                                         {new URL(website).hostname}
-                                                                        <ExternalLink className="size-3" />
+                                                                        <ExternalLink className="size-3 shrink-0" />
                                                                     </a>
                                                                 ) : (
                                                                     <span className="text-xs text-slate-400">No website</span>
                                                                 )}
-                                                            </div>
-                                                            <button
-                                                                type="button"
-                                                                aria-label={
-                                                                    credential.is_favorite
-                                                                        ? `Remove ${credential.title} from favorites`
-                                                                        : `Add ${credential.title} to favorites`
-                                                                }
-                                                                aria-pressed={credential.is_favorite}
-                                                                onClick={() => void toggleFavorite(credential)}
-                                                                className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${credential.is_favorite ? 'text-lockr-warning' : 'text-slate-300'}`}
-                                                            >
-                                                                <Star className={`size-5 ${credential.is_favorite ? 'fill-current' : ''}`} />
-                                                            </button>
-                                                        </div>
-                                                        <p className="mt-2 truncate font-mono text-xs text-slate-500">
-                                                            {credential.username || 'No username saved'}
-                                                        </p>
-                                                        <p className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                                                            <span className="bg-lockr-input text-lockr-navy-active rounded px-2 py-1">
-                                                                {credential.folder?.name ?? 'Unfiled'}
                                                             </span>
-                                                            <span>{relativeDate(credential.updated_at)}</span>
-                                                        </p>
-                                                        <div className="mt-3 flex min-w-0 items-center gap-2">
-                                                            <span className="bg-lockr-subtle min-w-0 flex-1 truncate rounded-lg px-3 py-2 font-mono text-xs">
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                                                        <span className="flex max-w-52 items-center justify-between gap-2">
+                                                            <span className="truncate">{credential.username || '—'}</span>
+                                                            {credential.username && (
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label={`Copy ${credential.title} username`}
+                                                                    onClick={() => void copyText(credential.username!, 'Username')}
+                                                                    className="hover:bg-lockr-input hover:text-lockr-interactive flex size-9 shrink-0 items-center justify-center rounded text-slate-400"
+                                                                >
+                                                                    <Copy className="size-4" />
+                                                                </button>
+                                                            )}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex items-center gap-1.5 font-mono text-xs">
+                                                            <span className="max-w-36 truncate text-slate-600">
                                                                 {visiblePasswords[credential.id] ?? '••••••••••••••••'}
                                                             </span>
                                                             <button
@@ -1811,9 +1367,12 @@ export default function VaultIndex() {
                                                                         : `Reveal ${credential.title} password`
                                                                 }
                                                                 onClick={() => void togglePassword(credential.id)}
-                                                                className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500"
+                                                                disabled={passwordLoadingId === credential.id}
+                                                                className="hover:bg-lockr-input hover:text-lockr-navy flex size-9 items-center justify-center rounded text-slate-400 disabled:opacity-50"
                                                             >
-                                                                {visiblePasswords[credential.id] !== undefined ? (
+                                                                {passwordLoadingId === credential.id ? (
+                                                                    <span className="border-t-lockr-interactive size-4 animate-spin rounded-full border-2 border-slate-300" />
+                                                                ) : visiblePasswords[credential.id] !== undefined ? (
                                                                     <EyeOff className="size-4" />
                                                                 ) : (
                                                                     <Eye className="size-4" />
@@ -1823,112 +1382,250 @@ export default function VaultIndex() {
                                                                 type="button"
                                                                 aria-label={`Copy ${credential.title} password`}
                                                                 onClick={() => void copyCredentialPassword(credential.id)}
-                                                                className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500"
+                                                                className="hover:bg-lockr-input hover:text-lockr-interactive flex size-9 items-center justify-center rounded text-slate-400"
                                                             >
-                                                                <Copy className="size-4" />
+                                                                <KeyRound className="size-4" />
                                                             </button>
                                                         </div>
-                                                        <div className="mt-2 flex flex-wrap gap-2">
-                                                            {credential.username && (
+                                                    </td>
+                                                    <td className="hidden px-4 py-3 lg:table-cell">
+                                                        <span className="bg-lockr-input text-lockr-navy-active rounded-md px-2.5 py-1 text-xs font-medium">
+                                                            {credential.folder?.name ?? 'Unfiled'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-3 py-3 text-center">
+                                                        <button
+                                                            type="button"
+                                                            aria-label={
+                                                                credential.is_favorite
+                                                                    ? `Remove ${credential.title} from favorites`
+                                                                    : `Add ${credential.title} to favorites`
+                                                            }
+                                                            aria-pressed={credential.is_favorite}
+                                                            onClick={() => void toggleFavorite(credential)}
+                                                            className={`flex size-9 items-center justify-center rounded-lg ${credential.is_favorite ? 'text-lockr-warning' : 'hover:text-lockr-warning text-slate-300'}`}
+                                                        >
+                                                            <Star className={`size-5 ${credential.is_favorite ? 'fill-current' : ''}`} />
+                                                        </button>
+                                                    </td>
+                                                    <td className="hidden px-4 py-3 text-xs text-slate-500 xl:table-cell">
+                                                        {relativeDate(credential.updated_at)}
+                                                    </td>
+                                                    <td className="px-3 py-3 text-right">
+                                                        <details className="relative inline-block text-left">
+                                                            <summary
+                                                                aria-label={`Actions for ${credential.title}`}
+                                                                className="hover:bg-lockr-input flex size-9 cursor-pointer list-none items-center justify-center rounded-lg text-slate-500 [&::-webkit-details-marker]:hidden"
+                                                            >
+                                                                <MoreHorizontal className="size-5" />
+                                                            </summary>
+                                                            <div className="absolute right-0 z-20 mt-1 min-w-32 rounded-lg border border-slate-200 bg-white p-1 text-left shadow-lg">
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => void copyText(credential.username!, 'Username')}
-                                                                    className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-medium"
+                                                                    onClick={() => void openEditForm(credential.id)}
+                                                                    className="hover:bg-lockr-subtle block w-full rounded px-3 py-2 text-xs"
                                                                 >
-                                                                    Copy username
+                                                                    Edit
                                                                 </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => void deleteCredential(credential)}
+                                                                    className="block w-full rounded px-3 py-2 text-left text-xs text-red-700 hover:bg-red-50"
+                                                                >
+                                                                    Delete
+                                                                </button>
+                                                            </div>
+                                                        </details>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div className={`${view === 'grid' ? 'md:grid md:grid-cols-2 xl:grid-cols-3' : 'md:hidden'} divide-y divide-slate-100`}>
+                                {filteredCredentials.map((credential) => {
+                                    const website = safeWebsiteUrl(credential.website_url);
+                                    return (
+                                        <article key={`card-${credential.id}`} className="min-w-0 p-4">
+                                            <div className="flex min-w-0 items-start gap-3">
+                                                <input
+                                                    type="checkbox"
+                                                    aria-label={`Select ${credential.title}`}
+                                                    checked={selectedIds.includes(credential.id)}
+                                                    onChange={(event) =>
+                                                        setSelectedIds((ids) =>
+                                                            event.target.checked ? [...ids, credential.id] : ids.filter((id) => id !== credential.id),
+                                                        )
+                                                    }
+                                                    className="accent-lockr-interactive mt-2 size-5 shrink-0 rounded"
+                                                />
+                                                <span className="bg-lockr-navy flex size-10 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold text-white">
+                                                    {initials(credential.title)}
+                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <h2 className="truncate text-sm font-semibold">{credential.title}</h2>
+                                                            {website ? (
+                                                                <a
+                                                                    href={website}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-xs text-slate-500"
+                                                                >
+                                                                    {new URL(website).hostname}
+                                                                    <ExternalLink className="size-3" />
+                                                                </a>
+                                                            ) : (
+                                                                <span className="text-xs text-slate-400">No website</span>
                                                             )}
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            aria-label={
+                                                                credential.is_favorite
+                                                                    ? `Remove ${credential.title} from favorites`
+                                                                    : `Add ${credential.title} to favorites`
+                                                            }
+                                                            aria-pressed={credential.is_favorite}
+                                                            onClick={() => void toggleFavorite(credential)}
+                                                            className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${credential.is_favorite ? 'text-lockr-warning' : 'text-slate-300'}`}
+                                                        >
+                                                            <Star className={`size-5 ${credential.is_favorite ? 'fill-current' : ''}`} />
+                                                        </button>
+                                                    </div>
+                                                    <p className="mt-2 truncate font-mono text-xs text-slate-500">
+                                                        {credential.username || 'No username saved'}
+                                                    </p>
+                                                    <p className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                                        <span className="bg-lockr-input text-lockr-navy-active rounded px-2 py-1">
+                                                            {credential.folder?.name ?? 'Unfiled'}
+                                                        </span>
+                                                        <span>{relativeDate(credential.updated_at)}</span>
+                                                    </p>
+                                                    <div className="mt-3 flex min-w-0 items-center gap-2">
+                                                        <span className="bg-lockr-subtle min-w-0 flex-1 truncate rounded-lg px-3 py-2 font-mono text-xs">
+                                                            {visiblePasswords[credential.id] ?? '••••••••••••••••'}
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            aria-label={
+                                                                visiblePasswords[credential.id] !== undefined
+                                                                    ? `Hide ${credential.title} password`
+                                                                    : `Reveal ${credential.title} password`
+                                                            }
+                                                            onClick={() => void togglePassword(credential.id)}
+                                                            className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500"
+                                                        >
+                                                            {visiblePasswords[credential.id] !== undefined ? (
+                                                                <EyeOff className="size-4" />
+                                                            ) : (
+                                                                <Eye className="size-4" />
+                                                            )}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            aria-label={`Copy ${credential.title} password`}
+                                                            onClick={() => void copyCredentialPassword(credential.id)}
+                                                            className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500"
+                                                        >
+                                                            <Copy className="size-4" />
+                                                        </button>
+                                                    </div>
+                                                    <div className="mt-2 flex flex-wrap gap-2">
+                                                        {credential.username && (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => void openEditForm(credential.id)}
+                                                                onClick={() => void copyText(credential.username!, 'Username')}
                                                                 className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-medium"
                                                             >
-                                                                Edit
+                                                                Copy username
                                                             </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => void deleteCredential(credential)}
-                                                                className="min-h-10 rounded-lg border border-red-200 px-3 text-xs font-medium text-red-700"
-                                                            >
-                                                                Delete
-                                                            </button>
-                                                        </div>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void openEditForm(credential.id)}
+                                                            className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-medium"
+                                                        >
+                                                            Edit
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void deleteCredential(credential)}
+                                                            className="min-h-10 rounded-lg border border-red-200 px-3 text-xs font-medium text-red-700"
+                                                        >
+                                                            Delete
+                                                        </button>
                                                     </div>
                                                 </div>
-                                            </article>
-                                        );
-                                    })}
-                                </div>
-                            </>
-                        )}
-                        {!loading && totalCredentials > 0 && (
-                            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500 sm:px-5">
-                                <span>
-                                    Showing {credentials.length ? (currentPage - 1) * 10 + 1 : 0}–{Math.min(currentPage * 10, totalCredentials)} of{' '}
-                                    {totalCredentials}
+                                            </div>
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    )}
+                    {!loading && totalCredentials > 0 && (
+                        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500 sm:px-5">
+                            <span>
+                                Showing {credentials.length ? (currentPage - 1) * 10 + 1 : 0}–{Math.min(currentPage * 10, totalCredentials)} of{' '}
+                                {totalCredentials}
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="vault-page-size" className="sr-only">
+                                    Rows per page
+                                </label>
+                                <select
+                                    id="vault-page-size"
+                                    value={10}
+                                    disabled
+                                    aria-label="Rows per page"
+                                    className="hidden rounded border border-slate-200 bg-white px-2 py-1 sm:block"
+                                >
+                                    <option value="10">10 / page</option>
+                                </select>
+                                <button
+                                    type="button"
+                                    aria-label="Previous page"
+                                    disabled={currentPage <= 1}
+                                    onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
+                                    className="flex size-10 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40"
+                                >
+                                    <ChevronLeft className="size-4" />
+                                </button>
+                                <span className="font-mono">
+                                    {currentPage} / {lastPage}
                                 </span>
-                                <div className="flex items-center gap-2">
-                                    <label htmlFor="vault-page-size" className="sr-only">
-                                        Rows per page
-                                    </label>
-                                    <select
-                                        id="vault-page-size"
-                                        value={10}
-                                        disabled
-                                        aria-label="Rows per page"
-                                        className="hidden rounded border border-slate-200 bg-white px-2 py-1 sm:block"
-                                    >
-                                        <option value="10">10 / page</option>
-                                    </select>
-                                    <button
-                                        type="button"
-                                        aria-label="Previous page"
-                                        disabled={currentPage <= 1}
-                                        onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
-                                        className="flex size-10 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40"
-                                    >
-                                        <ChevronLeft className="size-4" />
-                                    </button>
-                                    <span className="font-mono">
-                                        {currentPage} / {lastPage}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        aria-label="Next page"
-                                        disabled={currentPage >= lastPage}
-                                        onClick={() => setCurrentPage((value) => Math.min(lastPage, value + 1))}
-                                        className="flex size-10 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40"
-                                    >
-                                        <ChevronRight className="size-4" />
-                                    </button>
-                                </div>
-                            </footer>
-                        )}
-                    </section>
+                                <button
+                                    type="button"
+                                    aria-label="Next page"
+                                    disabled={currentPage >= lastPage}
+                                    onClick={() => setCurrentPage((value) => Math.min(lastPage, value + 1))}
+                                    className="flex size-10 items-center justify-center rounded-lg border border-slate-200 disabled:opacity-40"
+                                >
+                                    <ChevronRight className="size-4" />
+                                </button>
+                            </div>
+                        </footer>
+                    )}
+                </section>
 
-                    <aside className="border-lockr-accent/15 bg-lockr-input/60 flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-start">
-                        <ShieldCheck className="text-lockr-accent mt-0.5 size-5 shrink-0" aria-hidden="true" />
-                        <div>
-                            <h2 className="text-lockr-navy text-sm font-semibold">Vault protection</h2>
-                            <p className="mt-1 text-xs leading-5 text-slate-600">
-                                Credential passwords and notes are encrypted at rest by the Laravel application key. This is server-side encryption,
-                                not zero-knowledge or end-to-end encryption. Password health and breach checks are not currently available.
-                            </p>
-                        </div>
-                        <Link href="/settings/security" className="text-lockr-interactive shrink-0 text-xs font-semibold hover:underline sm:ml-auto">
-                            Security settings
-                        </Link>
-                    </aside>
-                </main>
-            </div>
-            <button
-                type="button"
-                aria-label="Add credential"
-                onClick={openCreateForm}
-                className="bg-lockr-primary hover:bg-lockr-interactive fixed right-5 bottom-5 z-30 flex size-14 items-center justify-center rounded-full text-white shadow-xl sm:hidden"
-            >
-                <KeyRound className="size-6" />
-            </button>
+                <aside className="border-lockr-accent/15 bg-lockr-input/60 flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-start">
+                    <ShieldCheck className="text-lockr-accent mt-0.5 size-5 shrink-0" aria-hidden="true" />
+                    <div>
+                        <h2 className="text-lockr-navy text-sm font-semibold">Vault protection</h2>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                            Credential passwords and notes are encrypted at rest by the Laravel application key. This is server-side encryption, not
+                            zero-knowledge or end-to-end encryption. Password health and breach checks are not currently available.
+                        </p>
+                    </div>
+                    <Link href="/settings/security" className="text-lockr-interactive shrink-0 text-xs font-semibold hover:underline sm:ml-auto">
+                        Security settings
+                    </Link>
+                </aside>
+            </PageContainer>
 
             {formOpen && (
                 <div
@@ -2077,6 +1774,6 @@ export default function VaultIndex() {
                     </section>
                 </div>
             )}
-        </div>
+        </VaultShell>
     );
 }
