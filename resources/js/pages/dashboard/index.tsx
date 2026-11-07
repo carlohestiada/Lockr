@@ -64,6 +64,7 @@ export default function Dashboard() {
     const [favoriteTotal, setFavoriteTotal] = useState(0);
     const [feedTotal, setFeedTotal] = useState(0);
     const [autoLockMinutes, setAutoLockMinutes] = useState<number | null>(null);
+    const [showWebsiteIcons, setShowWebsiteIcons] = useState(true);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<FeedFilter>('all');
     const [folderFilter, setFolderFilter] = useState('');
@@ -133,15 +134,17 @@ export default function Dashboard() {
 
                 unlockedRef.current = true;
                 setUnlocked(true);
-                const [allCredentials, favorites, folderResult] = await Promise.all([
+                const [allCredentials, favorites, folderResult, preferences] = await Promise.all([
                     api<PaginatedCredentials>('/api/credentials?per_page=1'),
                     api<PaginatedCredentials>('/api/credentials?favorite=1&per_page=1'),
                     api<Folder[]>('/api/folders'),
+                    api<{ data: { show_website_icons: boolean } }>('/api/preferences'),
                 ]);
                 if (cancelled || !unlockedRef.current) return;
                 setCredentialTotal(allCredentials.total);
                 setFavoriteTotal(favorites.total);
                 setFolders(folderResult);
+                setShowWebsiteIcons(preferences.data.show_website_icons);
             } catch (reason) {
                 if (cancelled || (reason instanceof ApiError && reason.status === 423)) return;
                 setError(reason instanceof Error ? reason.message : 'Unable to load your dashboard.');
@@ -166,6 +169,7 @@ export default function Dashboard() {
         };
         const handlePreferencesUpdated = (event: WindowEventMap['preferences:updated']) => {
             setAutoLockMinutes(event.detail.auto_lock_minutes);
+            setShowWebsiteIcons(event.detail.show_website_icons);
         };
 
         window.addEventListener('vault:locked', handleLocked);
@@ -561,6 +565,7 @@ export default function Dashboard() {
                                             <CredentialAvatar
                                                 title={credential.title}
                                                 websiteUrl={credential.website_url}
+                                                enabled={showWebsiteIcons}
                                                 className="bg-lockr-input text-lockr-interactive size-10 rounded-xl"
                                             />
                                             <div className="min-w-0 flex-1">

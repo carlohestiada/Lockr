@@ -5,6 +5,7 @@ import { useState } from 'react';
 type CredentialAvatarProps = {
     title: string;
     websiteUrl: string | null;
+    enabled?: boolean;
     className?: string;
 };
 
@@ -28,8 +29,8 @@ function faviconUrl(value: string | null): string | null {
     }
 }
 
-export default function CredentialAvatar({ title, websiteUrl, className = '' }: CredentialAvatarProps) {
-    const src = faviconUrl(websiteUrl);
+export default function CredentialAvatar({ title, websiteUrl, enabled = true, className = '' }: CredentialAvatarProps) {
+    const src = enabled ? faviconUrl(websiteUrl) : null;
     const [failedSrc, setFailedSrc] = useState<string | null>(null);
     const initial = title.trim().charAt(0).toUpperCase();
 

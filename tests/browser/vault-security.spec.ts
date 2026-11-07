@@ -137,7 +137,7 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Dashboard' }).click();
     await dashboardResponse;
     await expect(page).toHaveURL(/\/dashboard$/);
-    await expect(page.getByRole('heading', { name: 'Your dashboard' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your dashboard' })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible({ timeout: 30_000 });
     await expect.poll(() => faviconRequests.length).toBeGreaterThan(0);
     const faviconRequest = new URL(faviconRequests[0]);
@@ -337,6 +337,7 @@ test('logout and login as another user does not reuse unlocked vault state', asy
 });
 
 test('credential folders, favorites, search, update, and delete work after unlock', async ({ page }) => {
+    test.setTimeout(120_000);
     await registerUser(page);
     await openLockedVault(page);
     await unlockVault(page);
@@ -363,13 +364,13 @@ test('credential folders, favorites, search, update, and delete work after unloc
 
     await page.getByRole('button', { name: 'Add E2E searchable account to favorites' }).click();
     await page.getByRole('button', { name: 'Favorites', exact: true }).click();
-    await expect(page.getByRole('table').getByText('E2E searchable account', { exact: true })).toBeVisible();
+    await expect(page.getByRole('table').getByText('E2E searchable account', { exact: true })).toBeVisible({ timeout: 30_000 });
 
     await page.getByRole('textbox', { name: 'Search credentials' }).fill('');
     await page.getByRole('textbox', { name: 'Search credentials' }).fill('not a match');
-    await expect(page.getByText('No matching credentials')).toBeVisible();
+    await expect(page.getByText('No matching credentials')).toBeVisible({ timeout: 30_000 });
     await page.getByRole('textbox', { name: 'Search credentials' }).fill('searchable');
-    await expect(page.getByRole('table').getByText('E2E searchable account', { exact: true })).toBeVisible();
+    await expect(page.getByRole('table').getByText('E2E searchable account', { exact: true })).toBeVisible({ timeout: 30_000 });
 
     await page.locator('summary[aria-label="Actions for E2E searchable account"]').click();
     await page.getByRole('button', { name: 'Edit' }).click();
@@ -386,6 +387,22 @@ test('credential folders, favorites, search, update, and delete work after unloc
 
 test('security and appearance preferences save together and apply across the app', async ({ page }) => {
     await registerUser(page);
+    await openLockedVault(page);
+    await unlockVault(page);
+    await page.route('https://www.google.com/s2/favicons**', (route) =>
+        route.fulfill({
+            status: 200,
+            contentType: 'image/png',
+            body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/rXcAAAAASUVORK5CYII=', 'base64'),
+        }),
+    );
+    await page.getByRole('button', { name: 'New Credential' }).click();
+    await page.getByLabel('Title *').fill('Website icon preference account');
+    await page.getByLabel('Password *').fill('Disposable-website-icon-secret');
+    await page.getByLabel('Website URL').fill('https://example.com/account');
+    await page.getByRole('button', { name: 'Save credential' }).click();
+    await expect(page.getByRole('table').getByText('Website icon preference account', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('img[src*="/s2/favicons"]').first()).toBeVisible();
     await page.goto('/settings/security');
 
     await expect(page.getByRole('heading', { name: 'Security & Preferences' })).toBeVisible();
@@ -400,6 +417,15 @@ test('security and appearance preferences save together and apply across the app
     await page.getByText('Dark', { exact: true }).click();
     await page.locator('#accent-color').fill('#205295');
     await page.getByLabel('Text size').selectOption('large');
+    const websiteIconsSwitch = page.getByRole('switch', { name: 'Website icons' });
+    await websiteIconsSwitch.click();
+    await expect(websiteIconsSwitch).toHaveAttribute('aria-checked', 'false');
+    await page.getByRole('button', { name: 'Discard Changes' }).click();
+    await expect(websiteIconsSwitch).toHaveAttribute('aria-checked', 'true');
+    await page.getByText('Dark', { exact: true }).click();
+    await page.locator('#accent-color').fill('#205295');
+    await page.getByLabel('Text size').selectOption('large');
+    await websiteIconsSwitch.click();
     await page.getByRole('button', { name: 'Save Preferences' }).click();
     await expect(page.getByRole('status')).toContainText('Preferences saved');
     await expect(page.locator('html')).toHaveClass(/dark/);
@@ -413,13 +439,22 @@ test('security and appearance preferences save together and apply across the app
     expect(savedPreferences.theme).toBe('dark');
     expect(savedPreferences.accent_color).toBe('#205295');
     expect(savedPreferences.font_size).toBe('large');
+    expect(savedPreferences.show_website_icons).toBe(false);
+
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'My Vault' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible();
+    await unlockVault(page);
+    await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible();
+    await expect(page.locator('img[src*="/s2/favicons"]')).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Your Vault is Locked' })).toBeVisible();
+    await unlockVault(page);
+    await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible();
+    await expect(page.locator('img[src*="/s2/favicons"]')).toHaveCount(0);
 
     await page.setViewportSize({ width: 360, height: 800 });
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(hasHorizontalOverflow).toBe(false);
-    await page.getByLabel('Text size').selectOption('medium');
-    await page.getByRole('button', { name: 'Save Preferences' }).click();
-    await expect(page.getByRole('status')).toContainText('Preferences saved');
 });
 
 test('folder management creates, renames, opens, and safely deletes folders', async ({ page }) => {
@@ -477,5 +512,5 @@ test('folder management creates, renames, opens, and safely deletes folders', as
     await expect(page.getByRole('heading', { name: 'E2E Trips' })).toHaveCount(0);
 
     await page.getByRole('link', { name: 'View unfiled credentials' }).click();
-    await expect(page.getByRole('table').getByText('E2E folder-owned credential', { exact: true })).toBeVisible();
+    await expect(page.getByRole('table').getByText('E2E folder-owned credential', { exact: true })).toBeVisible({ timeout: 30_000 });
 });

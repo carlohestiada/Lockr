@@ -151,6 +151,7 @@ export default function VaultIndex() {
     const [capsLockOn, setCapsLockOn] = useState(false);
     const [unlocking, setUnlocking] = useState(false);
     const [autoLockMinutes, setAutoLockMinutes] = useState(15);
+    const [showWebsiteIcons, setShowWebsiteIcons] = useState(true);
     const [autoLockSettingLoaded, setAutoLockSettingLoaded] = useState(false);
     const vaultLockedRef = useRef(true);
     const selectAllRef = useRef<HTMLInputElement>(null);
@@ -294,6 +295,7 @@ export default function VaultIndex() {
         const onLocked = () => markVaultLocked();
         const onPreferencesUpdated = (event: WindowEventMap['preferences:updated']) => {
             setAutoLockMinutes(event.detail.auto_lock_minutes);
+            setShowWebsiteIcons(event.detail.show_website_icons);
         };
 
         async function checkVaultStatus() {
@@ -301,11 +303,12 @@ export default function VaultIndex() {
 
             try {
                 const status = await api<{ locked: boolean; auto_lock_minutes: number }>('/api/vault/status');
-                const preferences = await api<{ data: { auto_lock_minutes: number } }>('/api/preferences');
+                const preferences = await api<{ data: { auto_lock_minutes: number; show_website_icons: boolean } }>('/api/preferences');
 
                 if (cancelled) return;
 
                 setAutoLockMinutes(preferences.data.auto_lock_minutes ?? status.auto_lock_minutes);
+                setShowWebsiteIcons(preferences.data.show_website_icons);
                 setAutoLockSettingLoaded(true);
 
                 if (status.locked) {
@@ -1401,7 +1404,11 @@ export default function VaultIndex() {
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         <div className="flex min-w-0 items-center gap-3">
-                                                            <CredentialAvatar title={credential.title} websiteUrl={credential.website_url} />
+                                                            <CredentialAvatar
+                                                                title={credential.title}
+                                                                websiteUrl={credential.website_url}
+                                                                enabled={showWebsiteIcons}
+                                                            />
                                                             <span className="min-w-0">
                                                                 <span className="text-lockr-navy block truncate font-semibold">
                                                                     {credential.title}
@@ -1551,7 +1558,12 @@ export default function VaultIndex() {
                                                     }
                                                     className="accent-lockr-interactive mt-2 size-5 shrink-0 rounded"
                                                 />
-                                                <CredentialAvatar title={credential.title} websiteUrl={credential.website_url} className="size-10" />
+                                                <CredentialAvatar
+                                                    title={credential.title}
+                                                    websiteUrl={credential.website_url}
+                                                    enabled={showWebsiteIcons}
+                                                    className="size-10"
+                                                />
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-start justify-between gap-2">
                                                         <div className="min-w-0">

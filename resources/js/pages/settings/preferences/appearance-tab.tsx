@@ -122,15 +122,32 @@ export default function AppearanceTab({ value, onChange }: PreferenceTabProps) {
                             </p>
                         </div>
                     </div>
-                    <div className="mt-5 flex min-h-14 items-center justify-between gap-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+                    <div className="mt-5 flex min-h-16 items-center justify-between gap-4 border-t border-slate-100 pt-4 dark:border-slate-800">
                         <div>
                             <p className="text-sm font-medium text-[#0A2647] dark:text-slate-100">Website icons</p>
-                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Secure favicon display is not implemented yet.</p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Show website logos beside saved credentials.</p>
                         </div>
-                        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">Coming soon</span>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={value.show_website_icons}
+                            aria-label="Website icons"
+                            onClick={() => onChange('show_website_icons', !value.show_website_icons)}
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2C74B3] ${
+                                value.show_website_icons ? 'bg-[#205295]' : 'bg-slate-300 dark:bg-slate-600'
+                            }`}
+                        >
+                            <span
+                                className={`inline-block size-5 rounded-full bg-white shadow transition-transform ${
+                                    value.show_website_icons ? 'translate-x-5' : 'translate-x-0.5'
+                                }`}
+                            />
+                        </button>
                     </div>
-                    <p className="mt-4 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                        The existing preference is preserved, but icon fetching is disabled so credential website URLs are not sent to third parties.
+                    <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                        {value.show_website_icons
+                            ? 'Enabled: display website favicons in credential lists.'
+                            : 'Disabled: show the generic credential avatar instead.'}
                     </p>
                 </article>
                 <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 dark:border-slate-800 dark:bg-slate-900">
