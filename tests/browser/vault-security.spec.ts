@@ -115,6 +115,11 @@ test('authenticated vault visit starts locked and correct account password unloc
 test('dashboard uses real credential metadata, searches safely, and generates passwords securely', async ({ page }) => {
     test.setTimeout(120_000);
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const faviconRequests: string[] = [];
+    await page.route('https://www.google.com/s2/favicons**', async (route) => {
+        faviconRequests.push(route.request().url());
+        await route.fulfill({ status: 404, body: '' });
+    });
     await registerUser(page);
     await openLockedVault(page);
     await unlockVault(page);
@@ -122,6 +127,7 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await page.getByRole('button', { name: 'New Credential' }).click();
     await page.getByLabel('Title *').fill('E2E dashboard mail');
     await page.getByLabel('Username or email').fill('dashboard-user@example.test');
+    await page.getByLabel('Website URL').fill('https://www.facebook.com/private/path?token=must-not-be-sent');
     await page.getByLabel('Password *').fill('Disposable-dashboard-secret-33');
     await page.getByLabel('Secure note').fill('Disposable dashboard private note');
     await page.getByRole('button', { name: 'Save credential' }).click();
@@ -133,6 +139,14 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole('heading', { name: 'Your dashboard' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible({ timeout: 30_000 });
+    await expect.poll(() => faviconRequests.length).toBeGreaterThan(0);
+    const faviconRequest = new URL(faviconRequests[0]);
+    expect(faviconRequest.searchParams.get('domain')).toBe('facebook.com');
+    expect(faviconRequests[0]).not.toContain('private');
+    expect(faviconRequests[0]).not.toContain('must-not-be-sent');
+    await expect(page.locator('img[src*="/s2/favicons"]')).toHaveCount(0);
+    const credentialCard = page.locator('article').filter({ has: page.getByRole('heading', { name: 'E2E dashboard mail' }) });
+    await expect(credentialCard.locator('div.flex.min-w-0.items-start.gap-3 > span').first()).toHaveText('E');
     const dashboardText = await page.locator('body').innerText();
     expect(dashboardText).not.toContain('Disposable-dashboard-secret-33');
     expect(dashboardText).not.toContain('Disposable dashboard private note');

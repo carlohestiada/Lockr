@@ -1,3 +1,4 @@
+import CredentialAvatar from '@/components/credential-avatar';
 import PageContainer from '@/components/layout/page-container';
 import VaultShell from '@/components/layout/vault-shell';
 import PasswordGenerator from '@/components/password-generator';
@@ -557,9 +558,11 @@ export default function Dashboard() {
                                 credentials.map((credential) => (
                                     <article key={credential.id} className="min-w-0 py-4">
                                         <div className="flex min-w-0 items-start gap-3">
-                                            <span className="bg-lockr-input text-lockr-interactive flex size-10 shrink-0 items-center justify-center rounded-xl">
-                                                <KeyRound className="size-[18px]" aria-hidden="true" />
-                                            </span>
+                                            <CredentialAvatar
+                                                title={credential.title}
+                                                websiteUrl={credential.website_url}
+                                                className="bg-lockr-input text-lockr-interactive size-10 rounded-xl"
+                                            />
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                                                     <h3 className="text-lockr-navy max-w-full truncate text-sm font-semibold">{credential.title}</h3>

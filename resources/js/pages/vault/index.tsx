@@ -1,3 +1,4 @@
+import CredentialAvatar from '@/components/credential-avatar';
 import PageContainer from '@/components/layout/page-container';
 import VaultShell from '@/components/layout/vault-shell';
 import { api, ApiError } from '@/lib/api';
@@ -82,17 +83,6 @@ const emptyForm: CredentialForm = {
     folder_id: '',
     is_favorite: false,
 };
-
-function initials(value: string): string {
-    return (
-        value
-            .trim()
-            .split(/\s+/)
-            .slice(0, 2)
-            .map((part) => part.charAt(0).toUpperCase())
-            .join('') || '?'
-    );
-}
 
 function relativeDate(value: string): string {
     const time = new Date(value).getTime();
@@ -1411,9 +1401,7 @@ export default function VaultIndex() {
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         <div className="flex min-w-0 items-center gap-3">
-                                                            <span className="bg-lockr-navy flex size-9 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold text-white">
-                                                                {initials(credential.title)}
-                                                            </span>
+                                                            <CredentialAvatar title={credential.title} websiteUrl={credential.website_url} />
                                                             <span className="min-w-0">
                                                                 <span className="text-lockr-navy block truncate font-semibold">
                                                                     {credential.title}
@@ -1563,9 +1551,7 @@ export default function VaultIndex() {
                                                     }
                                                     className="accent-lockr-interactive mt-2 size-5 shrink-0 rounded"
                                                 />
-                                                <span className="bg-lockr-navy flex size-10 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-bold text-white">
-                                                    {initials(credential.title)}
-                                                </span>
+                                                <CredentialAvatar title={credential.title} websiteUrl={credential.website_url} className="size-10" />
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-start justify-between gap-2">
                                                         <div className="min-w-0">
