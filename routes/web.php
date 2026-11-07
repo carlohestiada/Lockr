@@ -24,6 +24,10 @@ Route::middleware(['auth'])->group(function () {
         return Inertia::render('vault/index');
     })->name('vault.index');
 
+    Route::get('favorites', function () {
+        return Inertia::render('vault/index', ['mode' => 'favorites']);
+    })->name('favorites.index');
+
     Route::get('folders', function () {
         return Inertia::render('folders/index');
     })->name('folders.index');
@@ -40,6 +44,8 @@ Route::middleware('auth')->prefix('api')->group(function () {
     Route::post('credentials/{credential}/reveal', [CredentialController::class, 'reveal'])
         ->middleware([EnsureVaultUnlocked::class, 'throttle:20,1']);
     Route::get('credentials/{credential}/edit', [CredentialController::class, 'edit'])
+        ->middleware(EnsureVaultUnlocked::class);
+    Route::get('credentials/favorite-folder-counts', [CredentialController::class, 'favoriteFolderCounts'])
         ->middleware(EnsureVaultUnlocked::class);
 
     Route::apiResource('credentials', CredentialController::class)

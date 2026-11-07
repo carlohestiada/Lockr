@@ -225,6 +225,63 @@ class VaultAuthorizationTest extends TestCase
             ->assertJsonMissingPath('data.0.password');
     }
 
+    public function test_favorites_can_be_searched_by_folder_and_have_real_folder_counts(): void
+    {
+        $user = User::factory()->create();
+        $folder = $user->folders()->create(['name' => 'Important Work']);
+        $matching = $user->credentials()->create([
+            'title' => 'Mail',
+            'password' => 'favorite-secret',
+            'folder_id' => $folder->id,
+            'is_favorite' => true,
+        ]);
+        $unfiledFavorite = $user->credentials()->create([
+            'title' => 'Personal',
+            'password' => 'another-favorite-secret',
+            'is_favorite' => true,
+        ]);
+        $user->credentials()->create([
+            'title' => 'Not starred',
+            'password' => 'not-favorite-secret',
+            'folder_id' => $folder->id,
+        ]);
+
+        $this->unlockVault($user);
+
+        $this->actingAs($user)
+            ->getJson('/api/credentials?search=WORK&favorite=1')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $matching->id)
+            ->assertJsonMissingPath('data.0.password');
+
+        $this->actingAs($user)
+            ->getJson('/api/credentials/favorite-folder-counts')
+            ->assertOk()
+            ->assertJsonPath('total', 2)
+            ->assertJsonFragment(['folder_id' => $folder->id, 'name' => $folder->name, 'credentials_count' => 1])
+            ->assertJsonFragment(['folder_id' => null, 'name' => 'Unfiled', 'credentials_count' => 1]);
+    }
+
+    public function test_credential_list_sorts_by_recently_added(): void
+    {
+        $user = User::factory()->create();
+        $older = $user->credentials()->create(['title' => 'Added first', 'password' => 'first-secret']);
+        $newer = $user->credentials()->create(['title' => 'Added second', 'password' => 'second-secret']);
+
+        DB::table('credentials')
+            ->where('id', $older->id)
+            ->update(['created_at' => now()->subDay()]);
+
+        $this->unlockVault($user);
+
+        $this->actingAs($user)
+            ->getJson('/api/credentials?sort=created')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $newer->id)
+            ->assertJsonPath('data.1.id', $older->id);
+    }
+
     public function test_unauthenticated_user_cannot_access_credentials(): void
     {
         $this->get('/api/credentials')

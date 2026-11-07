@@ -19,7 +19,7 @@ const navigation: NavigationItem[] = [
     { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { title: 'My Vault', href: '/vault', icon: ShieldCheck, countKey: 'credentials' },
     { title: 'Folders', href: '/folders', icon: FolderClosed, countKey: 'folders' },
-    { title: 'Favorites', href: '/vault?favorites=1', icon: Star, countKey: 'favorites' },
+    { title: 'Favorites', href: '/favorites', icon: Star, countKey: 'favorites' },
     { title: 'Settings', href: '/settings/security', icon: Settings2 },
 ];
 
@@ -27,6 +27,7 @@ function currentSection(url: string): string {
     const parsed = new URL(url, 'http://lockr.local');
     if (parsed.pathname === '/dashboard') return 'Dashboard';
     if (parsed.pathname === '/folders') return 'Folders';
+    if (parsed.pathname === '/favorites') return 'Favorites';
     if (parsed.pathname === '/vault') {
         if (parsed.searchParams.get('favorites') === '1') return 'Favorites';
         if (parsed.searchParams.has('folder')) return 'Folders';

@@ -52,4 +52,16 @@ class DashboardTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page->component('vault/index'));
     }
+
+    public function test_authenticated_users_can_visit_the_dedicated_favorites_page()
+    {
+        $this->withoutVite();
+        $this->actingAs(User::factory()->create());
+
+        $this->get('/favorites')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('vault/index')
+                ->where('mode', 'favorites'));
+    }
 }

@@ -428,7 +428,7 @@ export default function Dashboard() {
                         value={favoriteTotal}
                         icon={Heart}
                         detail="Quick access to important items"
-                        href="/vault?favorites=1"
+                        href="/favorites"
                         loading={loading}
                     />
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_-20px_rgba(10,38,71,0.5)]">

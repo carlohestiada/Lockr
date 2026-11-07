@@ -27,7 +27,7 @@ class CredentialController extends Controller
                 Rule::exists('folders', 'id')
                     ->where('user_id', $request->user()->id),
             ],
-            'sort' => ['sometimes', Rule::in(['updated', 'title', 'folder'])],
+            'sort' => ['sometimes', Rule::in(['updated', 'created', 'title', 'folder'])],
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
@@ -47,6 +47,7 @@ class CredentialController extends Controller
             ]);
 
         match ($validated['sort'] ?? 'updated') {
+            'created' => $query->orderByDesc('created_at')->orderByDesc('id'),
             'title' => $query->orderBy('title')->orderByDesc('id'),
             'folder' => $query->orderBy('folder_id')->orderBy('title'),
             default => $query->orderByDesc('updated_at')->orderByDesc('id'),
@@ -58,7 +59,8 @@ class CredentialController extends Controller
                 $pattern = "%{$search}%";
                 $query->whereRaw('LOWER(title) LIKE LOWER(?)', [$pattern])
                     ->orWhereRaw('LOWER(username) LIKE LOWER(?)', [$pattern])
-                    ->orWhereRaw('LOWER(website_url) LIKE LOWER(?)', [$pattern]);
+                    ->orWhereRaw('LOWER(website_url) LIKE LOWER(?)', [$pattern])
+                    ->orWhereHas('folder', fn ($folderQuery) => $folderQuery->whereRaw('LOWER(name) LIKE LOWER(?)', [$pattern]));
             });
         }
 
@@ -82,6 +84,32 @@ class CredentialController extends Controller
         }
 
         return response()->json($query->paginate($validated['per_page'] ?? 20));
+    }
+
+    public function favoriteFolderCounts(Request $request)
+    {
+        Gate::authorize('viewAny', Credential::class);
+
+        $user = $request->user();
+        $groupedCounts = $user->credentials()
+            ->where('is_favorite', true)
+            ->selectRaw('folder_id, COUNT(*) AS credentials_count')
+            ->groupBy('folder_id')
+            ->get();
+        $folderIds = $groupedCounts->pluck('folder_id')->filter()->all();
+        $folderNames = $user->folders()
+            ->whereKey($folderIds)
+            ->pluck('name', 'id');
+
+        return response()->json([
+            'data' => $groupedCounts->map(fn ($group) => [
+                'folder_id' => $group->folder_id,
+                'name' => $group->folder_id === null ? 'Unfiled' : $folderNames->get($group->folder_id, 'Folder'),
+                'credentials_count' => (int) $group->credentials_count,
+            ])->values(),
+            'total' => (clone $user->credentials())->where('is_favorite', true)->count(),
+            'recently_updated_at' => (clone $user->credentials())->where('is_favorite', true)->max('updated_at'),
+        ]);
     }
 
     public function show(Request $request, Credential $credential)

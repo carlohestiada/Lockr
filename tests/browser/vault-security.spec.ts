@@ -127,7 +127,10 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await page.getByRole('button', { name: 'Save credential' }).click();
     await expect(page.getByRole('table').getByText('E2E dashboard mail', { exact: true })).toBeVisible({ timeout: 30_000 });
 
+    const dashboardResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/dashboard');
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Dashboard' }).click();
+    await dashboardResponse;
+    await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole('heading', { name: 'Your dashboard' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible({ timeout: 30_000 });
     const dashboardText = await page.locator('body').innerText();
@@ -163,13 +166,18 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
     await page.getByRole('textbox', { name: 'Search credentials' }).fill('dashboard-user');
     await page.getByRole('button', { name: 'Add E2E dashboard mail to favorites' }).click();
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Favorites' }).click();
-    await expect(page).toHaveURL(/\/vault\?favorites=1$/);
-    await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(/\/favorites$/);
+    await expect(page.getByRole('heading', { name: 'Favorites', exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Favorites' })).toHaveAttribute(
         'aria-current',
         'page',
     );
     await expect(page.getByRole('table').getByText('E2E dashboard mail', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('textbox', { name: 'Search favorites' })).toBeVisible();
+    await page.locator('summary[aria-label="Actions for E2E dashboard mail"]').click();
+    await page.getByRole('button', { name: 'View details' }).click();
+    await expect(page.getByRole('dialog').getByRole('heading', { name: 'E2E dashboard mail' })).toBeVisible();
+    await page.getByRole('button', { name: 'Close credential details' }).click();
 
     for (const width of [360, 768, 1024, 1440]) {
         await page.setViewportSize({ width, height: 900 });
@@ -177,6 +185,13 @@ test('dashboard uses real credential metadata, searches safely, and generates pa
         expect(hasVaultOverflow).toBe(false);
     }
     await page.setViewportSize({ width: 1280, height: 900 });
+
+    await page.getByRole('button', { name: 'Remove E2E dashboard mail from favorites' }).click();
+    await expect(page.getByRole('table').getByText('E2E dashboard mail', { exact: true })).toHaveCount(0);
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'My Vault' }).click();
+    await expect(page.getByRole('heading', { name: 'My Vault' })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('textbox', { name: 'Search credentials' }).fill('E2E dashboard mail');
+    await expect(page.getByRole('table').getByText('E2E dashboard mail', { exact: true })).toBeVisible({ timeout: 30_000 });
 
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Dashboard' }).click();
     await page.getByRole('button', { name: 'New Credential' }).click();

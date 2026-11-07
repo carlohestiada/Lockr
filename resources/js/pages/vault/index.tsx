@@ -47,6 +47,8 @@ type Credential = {
 };
 
 type EditableCredential = Omit<Credential, 'updated_at'> & { notes: string | null };
+type FavoriteFolderCount = { folder_id: number | null; name: string; credentials_count: number };
+type FavoriteSummary = { data: FavoriteFolderCount[]; total: number; recently_updated_at: string | null };
 
 type CredentialPage = {
     data: Credential[];
@@ -58,7 +60,7 @@ type CredentialPage = {
     total: number;
 };
 
-type SortOrder = 'updated' | 'title' | 'folder';
+type SortOrder = 'updated' | 'created' | 'title' | 'folder';
 type VaultView = 'table' | 'grid';
 
 type CredentialForm = {
@@ -117,22 +119,28 @@ function safeWebsiteUrl(value: string | null): string | null {
 }
 
 export default function VaultIndex() {
-    const page = usePage<SharedData>();
+    const page = usePage<SharedData & { mode?: 'favorites' }>();
     const { auth } = page.props;
-    const initialQuery = new URLSearchParams(page.url.split('?')[1] ?? '');
+    const initialUrl = new URL(page.url, window.location.origin);
+    const initialQuery = initialUrl.searchParams;
+    const isFavoritesPage = page.props.mode === 'favorites' || initialUrl.pathname === '/favorites';
     const [credentials, setCredentials] = useState<Credential[]>([]);
     const [folders, setFolders] = useState<Folder[]>([]);
     const [search, setSearch] = useState(initialQuery.get('q') ?? '');
     const [folderFilter, setFolderFilter] = useState(initialQuery.get('folder') ?? 'all');
-    const [favoritesOnly, setFavoritesOnly] = useState(initialQuery.get('favorites') === '1');
+    const [favoritesOnly, setFavoritesOnly] = useState(isFavoritesPage || initialQuery.get('favorites') === '1');
     const [sortOrder, setSortOrder] = useState<SortOrder>(
-        initialQuery.get('sort') === 'title' || initialQuery.get('sort') === 'folder' ? (initialQuery.get('sort') as SortOrder) : 'updated',
+        initialQuery.get('sort') === 'created' || initialQuery.get('sort') === 'title' || initialQuery.get('sort') === 'folder'
+            ? (initialQuery.get('sort') as SortOrder)
+            : 'updated',
     );
     const [currentPage, setCurrentPage] = useState(Math.max(1, Number(initialQuery.get('page')) || 1));
     const [lastPage, setLastPage] = useState(1);
     const [vaultCredentialCount, setVaultCredentialCount] = useState(0);
     const [totalCredentials, setTotalCredentials] = useState(0);
     const [favoriteCount, setFavoriteCount] = useState(0);
+    const [favoriteFolderCounts, setFavoriteFolderCounts] = useState<FavoriteFolderCount[]>([]);
+    const [favoriteUpdatedAt, setFavoriteUpdatedAt] = useState<string | null>(null);
     const [view, setView] = useState<VaultView>('table');
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [bulkFolderId, setBulkFolderId] = useState('');
@@ -140,6 +148,7 @@ export default function VaultIndex() {
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
     const [formOpen, setFormOpen] = useState(false);
+    const [detailCredential, setDetailCredential] = useState<Credential | null>(null);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [form, setForm] = useState<CredentialForm>(emptyForm);
     const [saving, setSaving] = useState(false);
@@ -159,20 +168,26 @@ export default function VaultIndex() {
     const clipboardTimerRef = useRef<number | undefined>(undefined);
     const clipboardValueRef = useRef<string | undefined>(undefined);
     const filtersRef = useRef({ search, folderFilter, favoritesOnly, sortOrder, currentPage });
-    filtersRef.current = { search, folderFilter, favoritesOnly, sortOrder, currentPage };
+    filtersRef.current = { search, folderFilter, favoritesOnly: favoritesOnly || isFavoritesPage, sortOrder, currentPage };
 
     useEffect(() => {
-        const handlePopState = () => {
-            const query = new URLSearchParams(window.location.search);
+        const syncFilters = () => {
+            const currentUrl = new URL(window.location.href);
+            const query = currentUrl.searchParams;
             setSearch(query.get('q') ?? '');
             setFolderFilter(query.get('folder') ?? 'all');
-            setFavoritesOnly(query.get('favorites') === '1');
-            setSortOrder(query.get('sort') === 'title' || query.get('sort') === 'folder' ? (query.get('sort') as SortOrder) : 'updated');
+            setFavoritesOnly(isFavoritesPage || query.get('favorites') === '1');
+            setSortOrder(
+                query.get('sort') === 'created' || query.get('sort') === 'title' || query.get('sort') === 'folder'
+                    ? (query.get('sort') as SortOrder)
+                    : 'updated',
+            );
             setCurrentPage(Math.max(1, Number(query.get('page')) || 1));
         };
-        window.addEventListener('popstate', handlePopState);
-        return () => window.removeEventListener('popstate', handlePopState);
-    }, [page.url]);
+        syncFilters();
+        window.addEventListener('popstate', syncFilters);
+        return () => window.removeEventListener('popstate', syncFilters);
+    }, [page.url, isFavoritesPage]);
 
     useEffect(() => {
         if (vaultLocked) return;
@@ -184,12 +199,13 @@ export default function VaultIndex() {
         setForm({
             ...emptyForm,
             folder_id: folderFilter !== 'all' && folderFilter !== 'unfiled' ? folderFilter : '',
+            is_favorite: isFavoritesPage,
         });
         setError('');
         setNotice('');
         setFormOpen(true);
         window.history.replaceState(window.history.state, '', '/vault');
-    }, [folderFilter, vaultLocked]);
+    }, [folderFilter, isFavoritesPage, vaultLocked]);
 
     const clearCopiedClipboard = useCallback(async () => {
         const copiedValue = clipboardValueRef.current;
@@ -255,11 +271,12 @@ export default function VaultIndex() {
             if (filters.search.trim()) query.set('search', filters.search.trim());
             if (filters.favoritesOnly) query.set('favorite', '1');
             if (filters.folderFilter !== 'all') query.set('folder', filters.folderFilter);
-            const [credentialResult, folderResult, favoriteResult, allCredentialsResult] = await Promise.all([
+            const [credentialResult, folderResult, favoriteResult, allCredentialsResult, favoriteSummary] = await Promise.all([
                 api<CredentialPage>(`/api/credentials?${query.toString()}`),
                 api<Folder[]>('/api/folders'),
                 api<CredentialPage>('/api/credentials?favorite=1&per_page=1'),
                 api<CredentialPage>('/api/credentials?per_page=1'),
+                api<FavoriteSummary>('/api/credentials/favorite-folder-counts'),
             ]);
 
             if (!vaultLockedRef.current) {
@@ -270,6 +287,8 @@ export default function VaultIndex() {
                 setLastPage(credentialResult.last_page);
                 setFavoriteCount(favoriteResult.total);
                 setVaultCredentialCount(allCredentialsResult.total);
+                setFavoriteFolderCounts(favoriteSummary.data);
+                setFavoriteUpdatedAt(favoriteSummary.recently_updated_at);
             }
         } catch (err) {
             if (!(err instanceof ApiError && err.status === 423)) {
@@ -440,6 +459,7 @@ export default function VaultIndex() {
         setForm({
             ...emptyForm,
             folder_id: folderFilter !== 'all' && folderFilter !== 'unfiled' ? folderFilter : '',
+            is_favorite: isFavoritesPage,
         });
         setError('');
         setNotice('');
@@ -896,9 +916,10 @@ export default function VaultIndex() {
 
     return (
         <VaultShell
-            title="My Vault"
+            title={isFavoritesPage ? 'Favorites' : 'My Vault'}
             headerSearch={{
                 value: search,
+                placeholder: isFavoritesPage ? 'Search favorites...' : 'Search credentials...',
                 onChange: (value) => {
                     setSearch(value);
                     setCurrentPage(1);
@@ -914,43 +935,118 @@ export default function VaultIndex() {
                 <section className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div>
                         <div className="flex flex-wrap items-center gap-2">
-                            <h1 className="text-lockr-navy text-2xl font-semibold tracking-tight sm:text-3xl">My Vault</h1>
+                            <h1 className="text-lockr-navy text-2xl font-semibold tracking-tight sm:text-3xl">
+                                {isFavoritesPage ? 'Favorites' : 'My Vault'}
+                            </h1>
                             <span className="bg-lockr-input text-lockr-navy-active rounded-full px-2.5 py-1 font-mono text-xs">
-                                {totalCredentials} {totalCredentials === 1 ? 'credential' : 'credentials'}
+                                {isFavoritesPage ? favoriteCount : totalCredentials}{' '}
+                                {isFavoritesPage
+                                    ? favoriteCount === 1
+                                        ? 'favorite'
+                                        : 'favorites'
+                                    : totalCredentials === 1
+                                      ? 'credential'
+                                      : 'credentials'}
                             </span>
                             <span className="border-lockr-success/20 inline-flex items-center gap-1.5 rounded-full border bg-emerald-50 px-2.5 py-1 text-[10px] font-medium text-emerald-800">
                                 <ShieldCheck className="size-3.5" aria-hidden="true" />
                                 Vault unlocked
                             </span>
                         </div>
-                        <p className="mt-1.5 text-sm text-slate-500">Manage your saved accounts and credentials.</p>
+                        <p className="mt-1.5 text-sm text-slate-500">
+                            {isFavoritesPage
+                                ? 'Your most important credentials, ready for quick access.'
+                                : 'Manage your saved accounts and credentials.'}
+                        </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <Link
-                            href="/folders"
-                            className="hover:bg-lockr-subtle min-h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700"
-                        >
-                            <FolderClosed className="mr-1.5 inline size-4" />
-                            Manage Folders
-                        </Link>
+                        {isFavoritesPage ? (
+                            <Link
+                                href="/vault"
+                                className="hover:bg-lockr-subtle inline-flex min-h-11 items-center rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700"
+                            >
+                                <KeyRound className="mr-1.5 size-4" aria-hidden="true" />
+                                Browse My Vault
+                            </Link>
+                        ) : (
+                            <Link
+                                href="/folders"
+                                className="hover:bg-lockr-subtle min-h-11 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700"
+                            >
+                                <FolderClosed className="mr-1.5 inline size-4" aria-hidden="true" />
+                                Manage Folders
+                            </Link>
+                        )}
                     </div>
                 </section>
 
                 <section className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-xs text-slate-500">Credentials in this view</p>
-                        <p className="mt-1 font-mono text-2xl font-semibold">{loading ? '—' : totalCredentials}</p>
+                        <p className="text-xs text-slate-500">{isFavoritesPage ? 'Favorite credentials' : 'Credentials in this view'}</p>
+                        <p className="mt-1 font-mono text-2xl font-semibold">{loading ? '—' : isFavoritesPage ? favoriteCount : totalCredentials}</p>
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-xs text-slate-500">Starred favorites</p>
-                        <p className="mt-1 font-mono text-2xl font-semibold">{loading ? '—' : favoriteCount}</p>
+                        <p className="text-xs text-slate-500">{isFavoritesPage ? 'Folders represented' : 'Starred favorites'}</p>
+                        <p className="mt-1 font-mono text-2xl font-semibold">
+                            {loading ? '—' : isFavoritesPage ? favoriteFolderCounts.filter((item) => item.folder_id !== null).length : favoriteCount}
+                        </p>
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-xs text-slate-500">Password health report</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-700">Not available</p>
-                        <p className="mt-1 text-xs text-slate-500">Passwords are not analyzed for reuse or breaches.</p>
+                        <p className="text-xs text-slate-500">{isFavoritesPage ? 'Recently updated' : 'Password health report'}</p>
+                        {isFavoritesPage ? (
+                            <>
+                                <p className="mt-1 text-sm font-semibold text-slate-700">
+                                    {favoriteUpdatedAt
+                                        ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(
+                                              new Date(favoriteUpdatedAt),
+                                          )
+                                        : 'No favorites yet'}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">Most recent change to a starred credential.</p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="mt-1 text-sm font-semibold text-slate-700">Not available</p>
+                                <p className="mt-1 text-xs text-slate-500">Passwords are not analyzed for reuse or breaches.</p>
+                            </>
+                        )}
                     </div>
                 </section>
+
+                {isFavoritesPage && favoriteFolderCounts.length > 0 && (
+                    <section aria-label="Favorite folders" className="flex flex-wrap items-center gap-2">
+                        <span className="mr-1 text-xs font-medium text-slate-500">Browse by folder</span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setFolderFilter('all');
+                                setCurrentPage(1);
+                            }}
+                            className={`min-h-9 rounded-full border px-3 text-xs font-medium ${
+                                folderFilter === 'all' ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-600'
+                            }`}
+                        >
+                            All favorites ({favoriteCount})
+                        </button>
+                        {favoriteFolderCounts.map((folder) => (
+                            <button
+                                key={folder.folder_id ?? 'unfiled'}
+                                type="button"
+                                onClick={() => {
+                                    setFolderFilter(folder.folder_id === null ? 'unfiled' : String(folder.folder_id));
+                                    setCurrentPage(1);
+                                }}
+                                className={`min-h-9 rounded-full border px-3 text-xs font-medium ${
+                                    folderFilter === (folder.folder_id === null ? 'unfiled' : String(folder.folder_id))
+                                        ? 'border-blue-200 bg-blue-50 text-blue-800'
+                                        : 'border-slate-200 bg-white text-slate-600'
+                                }`}
+                            >
+                                {folder.name} ({folder.credentials_count})
+                            </button>
+                        ))}
+                    </section>
+                )}
 
                 {error && (
                     <div
@@ -985,7 +1081,7 @@ export default function VaultIndex() {
                     <div className="relative min-w-0 flex-1">
                         <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                         <label htmlFor="vault-search" className="sr-only">
-                            Search vault items
+                            {isFavoritesPage ? 'Search favorites' : 'Search vault items'}
                         </label>
                         <input
                             id="vault-search"
@@ -994,7 +1090,7 @@ export default function VaultIndex() {
                                 setSearch(event.target.value);
                                 setCurrentPage(1);
                             }}
-                            placeholder="Search title, username, or website..."
+                            placeholder={isFavoritesPage ? 'Search title, username, website, or folder...' : 'Search title, username, or website...'}
                             className="bg-lockr-subtle focus:ring-lockr-interactive h-11 w-full rounded-lg border-0 pr-3 pl-9 text-sm outline-none focus:ring-2"
                         />
                     </div>
@@ -1019,22 +1115,24 @@ export default function VaultIndex() {
                                 </option>
                             ))}
                         </select>
-                        <button
-                            type="button"
-                            aria-pressed={favoritesOnly}
-                            onClick={() => {
-                                setFavoritesOnly((value) => !value);
-                                setCurrentPage(1);
-                            }}
-                            className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition ${
-                                favoritesOnly
-                                    ? 'border-amber-300 bg-amber-50 text-amber-800'
-                                    : 'hover:bg-lockr-subtle border-slate-200 bg-white text-slate-600'
-                            }`}
-                        >
-                            <Star className={`size-4 ${favoritesOnly ? 'fill-current' : ''}`} aria-hidden="true" />
-                            Favorites
-                        </button>
+                        {!isFavoritesPage && (
+                            <button
+                                type="button"
+                                aria-pressed={favoritesOnly}
+                                onClick={() => {
+                                    setFavoritesOnly((value) => !value);
+                                    setCurrentPage(1);
+                                }}
+                                className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition ${
+                                    favoritesOnly
+                                        ? 'border-amber-300 bg-amber-50 text-amber-800'
+                                        : 'hover:bg-lockr-subtle border-slate-200 bg-white text-slate-600'
+                                }`}
+                            >
+                                <Star className={`size-4 ${favoritesOnly ? 'fill-current' : ''}`} aria-hidden="true" />
+                                Favorites
+                            </button>
+                        )}
                         <label htmlFor="vault-sort" className="sr-only">
                             Sort credentials
                         </label>
@@ -1048,6 +1146,7 @@ export default function VaultIndex() {
                             className="focus:ring-lockr-interactive min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2"
                         >
                             <option value="updated">Recently Updated</option>
+                            <option value="created">Recently Added</option>
                             <option value="title">Title A–Z</option>
                             <option value="folder">Folder</option>
                         </select>
@@ -1082,7 +1181,7 @@ export default function VaultIndex() {
                     </div>
                 </section>
 
-                {(search || folderFilter !== 'all' || favoritesOnly) && (
+                {(search || folderFilter !== 'all' || (favoritesOnly && !isFavoritesPage)) && (
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-slate-500">Active filters:</span>
                         {search && (
@@ -1110,7 +1209,7 @@ export default function VaultIndex() {
                                 <X className="ml-1 inline size-3" />
                             </button>
                         )}
-                        {favoritesOnly && (
+                        {favoritesOnly && !isFavoritesPage && (
                             <button
                                 type="button"
                                 onClick={() => {
@@ -1209,22 +1308,43 @@ export default function VaultIndex() {
                     ) : filteredCredentials.length === 0 ? (
                         <div className="px-5 py-16 text-center">
                             <span className="bg-lockr-input text-lockr-interactive mx-auto flex size-12 items-center justify-center rounded-2xl">
-                                <KeyRound className="size-6" />
+                                {isFavoritesPage ? <Star className="size-6" /> : <KeyRound className="size-6" />}
                             </span>
                             <h2 className="text-lockr-navy mt-4 font-semibold">
-                                {vaultCredentialCount === 0 ? 'Your vault is empty' : 'No matching credentials'}
+                                {isFavoritesPage
+                                    ? favoriteCount === 0 && !search && folderFilter === 'all'
+                                        ? 'No favorites yet'
+                                        : 'No matching favorites'
+                                    : vaultCredentialCount === 0
+                                      ? 'Your vault is empty'
+                                      : 'No matching credentials'}
                             </h2>
                             <p className="mt-1 text-sm text-slate-500">
-                                {vaultCredentialCount === 0 ? 'Add your first credential to get started.' : 'Try another search or filter.'}
+                                {isFavoritesPage
+                                    ? favoriteCount === 0 && !search && folderFilter === 'all'
+                                        ? 'Star your frequently used credentials to access them quickly from this page.'
+                                        : 'Try another search or folder filter.'
+                                    : vaultCredentialCount === 0
+                                      ? 'Add your first credential to get started.'
+                                      : 'Try another search or filter.'}
                             </p>
-                            {vaultCredentialCount === 0 && (
-                                <button
-                                    type="button"
-                                    onClick={openCreateForm}
-                                    className="bg-lockr-primary hover:bg-lockr-interactive mt-4 min-h-10 rounded-lg px-4 text-sm font-semibold text-white"
+                            {isFavoritesPage ? (
+                                <Link
+                                    href="/vault"
+                                    className="bg-lockr-primary hover:bg-lockr-interactive mt-4 inline-flex min-h-10 items-center rounded-lg px-4 text-sm font-semibold text-white"
                                 >
-                                    Add your first credential
-                                </button>
+                                    Browse My Vault
+                                </Link>
+                            ) : (
+                                vaultCredentialCount === 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={openCreateForm}
+                                        className="bg-lockr-primary hover:bg-lockr-interactive mt-4 min-h-10 rounded-lg px-4 text-sm font-semibold text-white"
+                                    >
+                                        Add your first credential
+                                    </button>
+                                )
                             )}
                         </div>
                     ) : (
@@ -1397,6 +1517,13 @@ export default function VaultIndex() {
                                                             <div className="absolute right-0 z-20 mt-1 min-w-32 rounded-lg border border-slate-200 bg-white p-1 text-left shadow-lg">
                                                                 <button
                                                                     type="button"
+                                                                    onClick={() => setDetailCredential(credential)}
+                                                                    className="hover:bg-lockr-subtle block w-full rounded px-3 py-2 text-left text-xs"
+                                                                >
+                                                                    View details
+                                                                </button>
+                                                                <button
+                                                                    type="button"
                                                                     onClick={() => void openEditForm(credential.id)}
                                                                     className="hover:bg-lockr-subtle block w-full rounded px-3 py-2 text-xs"
                                                                 >
@@ -1510,6 +1637,13 @@ export default function VaultIndex() {
                                                         </button>
                                                     </div>
                                                     <div className="mt-2 flex flex-wrap gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setDetailCredential(credential)}
+                                                            className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-medium"
+                                                        >
+                                                            Details
+                                                        </button>
                                                         {credential.username && (
                                                             <button
                                                                 type="button"
@@ -1601,6 +1735,95 @@ export default function VaultIndex() {
                     </Link>
                 </aside>
             </PageContainer>
+
+            {detailCredential && (
+                <div
+                    className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+                    role="presentation"
+                    onMouseDown={(event) => {
+                        if (event.target === event.currentTarget) setDetailCredential(null);
+                    }}
+                >
+                    <section
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="credential-details-title"
+                        className="my-auto max-h-[95svh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:max-h-[90vh] sm:rounded-2xl sm:p-6"
+                    >
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 id="credential-details-title" className="text-lockr-navy text-lg font-semibold">
+                                    {detailCredential.title}
+                                </h2>
+                                <p className="mt-1 text-xs text-slate-500">Credential details. Passwords are hidden until explicitly revealed.</p>
+                            </div>
+                            <button
+                                type="button"
+                                aria-label="Close credential details"
+                                onClick={() => setDetailCredential(null)}
+                                className="hover:bg-lockr-subtle flex size-10 shrink-0 items-center justify-center rounded-lg text-slate-500"
+                            >
+                                <X className="size-5" aria-hidden="true" />
+                            </button>
+                        </div>
+                        <dl className="mt-5 divide-y divide-slate-100 rounded-xl border border-slate-200">
+                            <div className="grid gap-1 px-4 py-3 sm:grid-cols-[8rem_1fr] sm:gap-4">
+                                <dt className="text-xs font-medium text-slate-500">Username / email</dt>
+                                <dd className="text-sm break-all text-slate-800">{detailCredential.username || 'Not provided'}</dd>
+                            </div>
+                            <div className="grid gap-1 px-4 py-3 sm:grid-cols-[8rem_1fr] sm:gap-4">
+                                <dt className="text-xs font-medium text-slate-500">Website</dt>
+                                <dd className="text-sm break-all text-slate-800">
+                                    {safeWebsiteUrl(detailCredential.website_url) ? (
+                                        <a
+                                            href={safeWebsiteUrl(detailCredential.website_url)!}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-lockr-interactive hover:underline"
+                                        >
+                                            {detailCredential.website_url}
+                                        </a>
+                                    ) : (
+                                        detailCredential.website_url || 'Not provided'
+                                    )}
+                                </dd>
+                            </div>
+                            <div className="grid gap-1 px-4 py-3 sm:grid-cols-[8rem_1fr] sm:gap-4">
+                                <dt className="text-xs font-medium text-slate-500">Folder</dt>
+                                <dd className="text-sm text-slate-800">{detailCredential.folder?.name ?? 'Unfiled'}</dd>
+                            </div>
+                            <div className="grid gap-1 px-4 py-3 sm:grid-cols-[8rem_1fr] sm:gap-4">
+                                <dt className="text-xs font-medium text-slate-500">Favorite</dt>
+                                <dd className="text-sm text-slate-800">{detailCredential.is_favorite ? 'Starred' : 'Not starred'}</dd>
+                            </div>
+                            <div className="grid gap-1 px-4 py-3 sm:grid-cols-[8rem_1fr] sm:gap-4">
+                                <dt className="text-xs font-medium text-slate-500">Last updated</dt>
+                                <dd className="text-sm text-slate-800">{relativeDate(detailCredential.updated_at)}</dd>
+                            </div>
+                        </dl>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setDetailCredential(null)}
+                                className="min-h-10 rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700"
+                            >
+                                Close
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const credentialId = detailCredential.id;
+                                    setDetailCredential(null);
+                                    void openEditForm(credentialId);
+                                }}
+                                className="bg-lockr-interactive hover:bg-lockr-navy-active min-h-10 rounded-lg px-4 text-sm font-semibold text-white"
+                            >
+                                Edit credential
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            )}
 
             {formOpen && (
                 <div
